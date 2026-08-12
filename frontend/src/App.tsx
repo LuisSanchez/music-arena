@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Deck } from "./components/Deck";
+import { Radio } from "./components/Radio";
 import { Scope } from "./components/Scope";
 import { createMatch, createSession, voteMatch, type Match, type Pace } from "./lib/api";
 import { describeLock, readEar, recordVote, type Ear } from "./lib/prefs";
@@ -55,6 +56,7 @@ function readVolume(): number {
 }
 
 export function App() {
+  const [mode, setMode] = useState<"arena" | "radio">("arena");
   const [entered, setEntered] = useState(false);
   const [pace, setPace] = useState<Pace>("auto");
   const [ear, setEar] = useState<Ear>(() => readEar());
@@ -522,6 +524,29 @@ export function App() {
             ? "Two different cuts. Pick the one that hits harder."
             : "Autoplay off · play each stack manually.";
 
+  if (mode === "radio") {
+    return (
+      <div className="app">
+        <nav className="nav">
+          <div className="wordmark">
+            CLA<span>SH</span>
+          </div>
+          <div className="nav-meta">
+            <div className="mode-switch">
+              <button type="button" data-on={false} onClick={() => setMode("arena")}>
+                Arena
+              </button>
+              <button type="button" data-on={true}>
+                Radio
+              </button>
+            </div>
+          </div>
+        </nav>
+        <Radio onBack={() => setMode("arena")} />
+      </div>
+    );
+  }
+
   return (
     <div className="app">
       <nav className="nav">
@@ -529,6 +554,21 @@ export function App() {
           CLA<span>SH</span>
         </div>
         <div className="nav-meta">
+          <div className="mode-switch">
+            <button type="button" data-on={true}>
+              Arena
+            </button>
+            <button
+              type="button"
+              data-on={false}
+              onClick={() => {
+                stopBoth();
+                setMode("radio");
+              }}
+            >
+              Radio
+            </button>
+          </div>
           <div className="bias-pill">
             ear lock
             <strong>{lockLabel}</strong>

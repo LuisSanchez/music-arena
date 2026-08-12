@@ -5,8 +5,8 @@ from __future__ import annotations
 import numpy as np
 
 from .dsp import (
-    SR,
     biquad_filter,
+    get_sr,
     exp_decay,
     fade,
     resonant_lpf,
@@ -53,13 +53,13 @@ def kick(rng: np.random.Generator, style: str, character: str) -> np.ndarray:
     elif character == "apex":
         click *= 1.2
 
-    n = int(length * SR)
+    n = int(length * get_sr())
     t = time_axis(n)
     sweep = end_f + (start_f - end_f) * np.exp(-t * 28.0)
-    phase = 2 * np.pi * np.cumsum(sweep) / SR
+    phase = 2 * np.pi * np.cumsum(sweep) / get_sr()
     body = np.sin(phase) * exp_decay(n, 0.085 if style != "slow" else 0.14)
     sub = sine(end_f, t) * exp_decay(n, 0.16)
-    click_n = int(0.007 * SR)
+    click_n = int(0.007 * get_sr())
     clk = white(click_n, rng) * np.linspace(1.0, 0.0, click_n)
     clk = biquad_filter(clk, 4500 if style != "lofi" else 2200, q=0.7, kind="highpass")
     out = body * 0.86 + sub * 0.42
@@ -71,7 +71,7 @@ def kick(rng: np.random.Generator, style: str, character: str) -> np.ndarray:
 
 
 def snare(rng: np.random.Generator, style: str, character: str) -> np.ndarray:
-    n = int((0.22 if style != "slow" else 0.3) * SR)
+    n = int((0.22 if style != "slow" else 0.3) * get_sr())
     t = time_axis(n)
     tone_f = 190 if style != "lofi" else 165
     tone = sine(tone_f, t) * exp_decay(n, 0.045)
@@ -84,7 +84,7 @@ def snare(rng: np.random.Generator, style: str, character: str) -> np.ndarray:
     else:
         noise = biquad_filter(noise, 1400, q=0.6, kind="band")
     noise *= exp_decay(n, 0.055 if style != "lofi" else 0.08)
-    snap = white(int(0.008 * SR), rng)
+    snap = white(int(0.008 * get_sr()), rng)
     body = tone * 0.35 + noise * (0.85 if style != "lofi" else 0.55)
     body[: snap.shape[0]] += snap * 0.25
     if character == "apex":
@@ -94,11 +94,11 @@ def snare(rng: np.random.Generator, style: str, character: str) -> np.ndarray:
 
 def clap(rng: np.random.Generator, style: str) -> np.ndarray:
     # Soft layered clap — fewer micro-bursts (was a metallic rattle)
-    n = int(0.22 * SR)
+    n = int(0.22 * get_sr())
     out = np.zeros(n)
-    offsets = [0, int(0.014 * SR)]
+    offsets = [0, int(0.014 * get_sr())]
     for i, off in enumerate(offsets):
-        burst_n = int(0.035 * SR)
+        burst_n = int(0.035 * get_sr())
         burst = white(burst_n, rng) * exp_decay(burst_n, 0.014 + 0.004 * i)
         burst = biquad_filter(burst, 1400 if style != "lofi" else 1000, q=0.7, kind="band")
         gain = 0.85 if i == 0 else 0.55
@@ -112,7 +112,7 @@ def clap(rng: np.random.Generator, style: str) -> np.ndarray:
 
 def hat(rng: np.random.Generator, open_hat: bool, style: str) -> np.ndarray:
     length = 0.28 if open_hat else (0.045 if style != "lofi" else 0.06)
-    n = int(length * SR)
+    n = int(length * get_sr())
     noise = white(n, rng)
     cut = 9000 if style in {"hifi", "trance"} else 7200
     if style == "lofi":
@@ -127,7 +127,7 @@ def hat(rng: np.random.Generator, open_hat: bool, style: str) -> np.ndarray:
 
 
 def ride(rng: np.random.Generator, style: str) -> np.ndarray:
-    n = int(0.4 * SR)
+    n = int(0.4 * get_sr())
     t = time_axis(n)
     metal = np.zeros(n)
     for f in (320, 487, 743, 1088, 1650, 2420):
@@ -140,22 +140,22 @@ def ride(rng: np.random.Generator, style: str) -> np.ndarray:
 
 def perc(rng: np.random.Generator, kind: str) -> np.ndarray:
     if kind == "rim":
-        n = int(0.06 * SR)
+        n = int(0.06 * get_sr())
         t = time_axis(n)
         body = sine(780, t) * exp_decay(n, 0.012)
         body += 0.5 * white(n, rng) * exp_decay(n, 0.008)
         return fade(biquad_filter(body, 2000, q=0.9, kind="band"), 0.0003, 0.008)
     if kind == "shaker":
-        n = int(0.07 * SR)
+        n = int(0.07 * get_sr())
         body = biquad_filter(white(n, rng), 6500, q=0.6, kind="highpass")
         body *= exp_decay(n, 0.018)
         return fade(body, 0.0004, 0.01)
     # tom / bongo
-    n = int(0.16 * SR)
+    n = int(0.16 * get_sr())
     t = time_axis(n)
     f = 140 + 40 * rng.random()
     sweep = f + 40 * np.exp(-t * 40)
-    phase = 2 * np.pi * np.cumsum(sweep) / SR
+    phase = 2 * np.pi * np.cumsum(sweep) / get_sr()
     body = np.sin(phase) * exp_decay(n, 0.05)
     return fade(body, 0.0005, 0.02)
 

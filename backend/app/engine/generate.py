@@ -9,6 +9,8 @@ from typing import Any
 import numpy as np
 
 from .compose import compose_track, pick_style
+from .dsp import use_sample_rate
+from .quality import ARENA, RADIO, STATIONS, QualityProfile
 from .render import render_blueprint, render_wav_bytes
 from .theory import PACE_TABLE, PRODUCERS
 
@@ -40,28 +42,57 @@ def generate_track(
     bars: int | None = None,
     style: str | None = None,
     rhythm: str | None = None,
-    target_sec: float = DEFAULT_TARGET_SEC,
+    target_sec: float | None = None,
+    profile: QualityProfile | None = None,
 ) -> dict[str, Any]:
+    profile = profile or ARENA
+    target_sec = float(target_sec if target_sec is not None else profile.target_sec)
     rng = np.random.default_rng(seed)
-    blueprint = compose_track(
-        rng,
-        pace=pace,
-        faster=faster,
-        bias_styles=bias_styles,
-        producer=producer,
-        key=key,
-        scale=scale,
-        bars=bars,
-        style=style,
-        rhythm=rhythm,
-        target_sec=target_sec,
-    )
-    _mix, payload = render_blueprint(blueprint, rng)
-    wav = render_wav_bytes(payload["pcm"])
+    with use_sample_rate(profile.sample_rate):
+        blueprint = compose_track(
+            rng,
+            pace=pace,
+            faster=faster,
+            bias_styles=bias_styles,
+            producer=producer,
+            key=key,
+            scale=scale,
+            bars=bars,
+            style=style,
+            rhythm=rhythm,
+            target_sec=target_sec,
+            thin_parts=profile.thin_parts,
+            rhythm_pool=profile.rhythms,
+        )
+        _mix, payload = render_blueprint(blueprint, rng, profile=profile)
+        wav = render_wav_bytes(payload["pcm"], sample_rate=profile.sample_rate)
     return {
         "wav": wav,
         "meta": payload["meta"],
     }
+
+
+def generate_radio_track(
+    seed: int,
+    station: str,
+    producer: str | None = None,
+) -> dict[str, Any]:
+    """Single low-cost cut locked to a station (no auto, no A/B)."""
+    station = station.lower().strip()
+    if station not in STATIONS:
+        raise ValueError(f"invalid station: {station}")
+    rng = np.random.default_rng(seed)
+    if producer is None:
+        producer = str(rng.choice(PRODUCER_IDS))
+    return generate_track(
+        seed=seed,
+        pace=station,
+        faster=bool(rng.random() < 0.5),
+        bias_styles=[station],
+        producer=producer,
+        style=station,
+        profile=RADIO,
+    )
 
 
 def _generate_track_job(args: dict[str, Any]) -> dict[str, Any]:

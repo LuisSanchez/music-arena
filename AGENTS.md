@@ -177,6 +177,14 @@ python3 -c "from app.engine.generate import generate_match; m=generate_match(1,'
 curl -s -X POST http://127.0.0.1:8000/api/match -H 'Content-Type: application/json' -d '{"pace":"lofi"}'
 ```
 
+## Radio mode
+
+- UI: `frontend/src/components/Radio.tsx`, `lib/radio.ts` — mode switch in `App.tsx`.
+- API: `POST /api/radio/session`, `POST /api/radio/next`, `GET /api/radio/status`.
+- Engine: `quality.RADIO` (22.05 kHz, ~55s, thin parts), `generate_radio_track`.
+- Queue: `radio_queue.py` — depth `RADIO_WARM_DEPTH` (default 4), serial `RADIO_WORKERS=1`.
+- Station must be one of `slow|lofi|dance|trance|hifi` — **never auto**.
+
 ## Deploy (Vercel + API host)
 
 - **Frontend → Vercel** (root `vercel.json` builds `frontend/`).

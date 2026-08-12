@@ -45,7 +45,12 @@ cd frontend
 npm run dev
 ```
 
-## How a clash works
+## Modes
+
+- **Arena** — blind A/B soundclash (higher quality ~120s cuts, vote).
+- **Radio** — continuous station on **one** style (not Auto). Medium–low quality (~55s, 22 kHz) so the backend can keep a warm queue without burning CPU/RAM.
+
+## How a clash works (Arena)
 
 1. Pick a pace: **Slow**, **Lo-fi**, **Dance**, **Trance**, **Hi-fi**, or **Auto**.
 2. The desk presses two **independent** tracks (~120s each) — different composition, tempo, and rhythm engine.
@@ -53,6 +58,13 @@ npm run dev
 4. Vote after hearing both. Choosing a winner **keeps that cut playing** (it is not skipped).
 5. Three wins in the same lane lock the next press toward that lane (local only).
 6. About **30s after** a pair starts, the next pair is pre-generated so the following session is ready.
+
+## How Radio works
+
+1. Switch to **Radio** in the nav.
+2. Pick a station (Trance, Dance, … — **no Auto**).
+3. **Go on air** — the API serves cheap continuous cuts and keeps ~4 warming in the background.
+4. Skip anytime; the client buffers 3–4 tracks ahead for a smooth handoff.
 
 Engines follow electronic patterns — 4-on-the-floor, broken kick, half-time, shuffle, dense hats, rolling bass, gated supersaw, house stabs, dusty lo-fi keys — randomized so no two cuts match. Dense snare-roll “machine gun” fills are intentionally disabled.
 

@@ -9,11 +9,11 @@ import numpy as np
 from . import drums
 from .compose import Blueprint, Hit, add_swing
 from .dsp import (
-    SR,
     adsr,
     biquad_filter,
     delay_stereo,
     fade,
+    get_sr,
     limiter,
     midi_to_hz,
     mix_at,
@@ -32,11 +32,12 @@ from .dsp import (
     white,
     widen,
 )
+from .quality import ARENA, QualityProfile
 from .theory import PRODUCERS
 
 
 def beat_to_sample(beat: float, bpm: float) -> int:
-    return int(round(beat * 60.0 / bpm * SR))
+    return int(round(beat * 60.0 / bpm * get_sr()))
 
 
 def supersaw(freq: float, n: int, detune_cents: float, voices: int = 7) -> np.ndarray:
@@ -52,20 +53,21 @@ def supersaw(freq: float, n: int, detune_cents: float, voices: int = 7) -> np.nd
         mix += saw(f, t)
     mix /= max(voices, 1)
     # Soft anti-alias tilt (cheaper than filtering each voice)
-    return resonant_lpf(mix, min(SR * 0.42, max(freq * 8.0, 2500.0)), q=0.7)
+    return resonant_lpf(mix, min(get_sr() * 0.42, max(freq * 8.0, 2500.0)), q=0.7)
 
 
 def _fm_keys(freq: float, n: int, vel: float) -> np.ndarray:
     t = time_axis(n)
     mod = sine(freq * 2.01, t) * freq * 1.8 * adsr(n, 0.004, 0.18, 0.15, 0.25)
-    carrier = np.sin(2 * np.pi * freq * t + mod / SR * 40)
+    carrier = np.sin(2 * np.pi * freq * t + mod / get_sr() * 40)
     env = adsr(n, 0.006, 0.22, 0.35, 0.35)
     return fade(carrier * env * vel, 0.004, 0.03)
 
 
-def _pad(freq: float, n: int, vel: float, bright: float) -> np.ndarray:
-    # Mild detune only — wide cents + delay was reading as flanger
-    wave = supersaw(freq, n, detune_cents=5, voices=3)
+def _pad(
+    freq: float, n: int, vel: float, bright: float, profile: QualityProfile = ARENA
+) -> np.ndarray:
+    wave = supersaw(freq, n, detune_cents=profile.detune_pad, voices=profile.supersaw_voices_pad)
     wave += 0.3 * sine(freq, time_axis(n))
     env = adsr(n, 0.18, 0.4, 0.7, 0.5)
     cut = 900 + 2600 * bright
@@ -73,8 +75,20 @@ def _pad(freq: float, n: int, vel: float, bright: float) -> np.ndarray:
     return fade(wave * env * vel, 0.02, 0.08)
 
 
-def _lead_saw(freq: float, n: int, vel: float, bright: float, gated: bool) -> np.ndarray:
-    wave = supersaw(freq, n, detune_cents=7 if gated else 4, voices=4 if gated else 3)
+def _lead_saw(
+    freq: float,
+    n: int,
+    vel: float,
+    bright: float,
+    gated: bool,
+    profile: QualityProfile = ARENA,
+) -> np.ndarray:
+    wave = supersaw(
+        freq,
+        n,
+        detune_cents=profile.detune_lead if gated else max(3.0, profile.detune_lead - 2),
+        voices=profile.supersaw_voices_lead,
+    )
     env = adsr(n, 0.006, 0.08, 0.55 if not gated else 0.25, 0.06 if gated else 0.12)
     cut = 1400 + 4200 * bright
     wave = resonant_lpf(wave, cut, q=1.2)
@@ -155,7 +169,11 @@ def _cached_drum(kind: str, style: str, character: str, open_hat: bool = False) 
     raise ValueError(kind)
 
 
-def render_blueprint(bp: Blueprint, rng: np.random.Generator) -> tuple[np.ndarray, dict]:
+def render_blueprint(
+    bp: Blueprint,
+    rng: np.random.Generator,
+    profile: QualityProfile = ARENA,
+) -> tuple[np.ndarray, dict]:
     producer = PRODUCERS[bp.producer]
     n = beat_to_sample(bp.bars * 4 + 2, bp.bpm)  # tail
     # float32 buses: half the RAM/bandwidth of float64, enough for mix
@@ -238,10 +256,15 @@ def render_blueprint(bp: Blueprint, rng: np.random.Generator) -> tuple[np.ndarra
                 buf = _bass(freq, length, hit.velocity, style, float(producer["drive"]))
                 bus = "bass"
             elif voice == "pad":
-                buf = _pad(freq, length, hit.velocity, bright)
+                buf = _pad(freq, length, hit.velocity, bright, profile=profile)
             elif voice == "lead":
                 buf = _lead_saw(
-                    freq, length, hit.velocity, bright, gated=style in {"trance", "hifi"}
+                    freq,
+                    length,
+                    hit.velocity,
+                    bright,
+                    gated=style in {"trance", "hifi"},
+                    profile=profile,
                 )
             elif voice == "arp":
                 buf = _arp_pluck(freq, length, hit.velocity, bright)
@@ -260,15 +283,17 @@ def render_blueprint(bp: Blueprint, rng: np.random.Generator) -> tuple[np.ndarra
             stereo_buf = buf
         mix_at(buses[bus], stereo_buf.astype(np.float32, copy=False), start, 1.0)
 
-    # Sidechain ducks music + bass from kick
-    duck = np.ones(n, dtype=np.float32)
-    duck_len = beat_to_sample(0.42 if style in {"trance", "hifi", "dance"} else 0.28, bp.bpm)
-    curve = (1.0 - bp.sidechain * np.exp(-np.linspace(0, 6, duck_len))).astype(np.float32)
-    for k in kick_hits:
-        end = min(n, k + duck_len)
-        duck[k:end] *= curve[: end - k]
-    buses["music"] *= duck
-    buses["bass"] *= np.sqrt(duck)  # bass ducks a bit less so the note remains
+    # Sidechain ducks music + bass from kick (lighter on radio)
+    if not profile.light_fx or style in {"trance", "hifi", "dance"}:
+        duck = np.ones(n, dtype=np.float32)
+        sc = bp.sidechain * (0.55 if profile.light_fx else 1.0)
+        duck_len = beat_to_sample(0.42 if style in {"trance", "hifi", "dance"} else 0.28, bp.bpm)
+        curve = (1.0 - sc * np.exp(-np.linspace(0, 6, duck_len))).astype(np.float32)
+        for k in kick_hits:
+            end = min(n, k + duck_len)
+            duck[k:end] *= curve[: end - k]
+        buses["music"] *= duck
+        buses["bass"] *= np.sqrt(duck)
 
     drums_b = buses["drums"] * np.float32(0.95 * float(producer["punch"]))
     bass_b = buses["bass"] * np.float32(0.9)
@@ -287,16 +312,20 @@ def render_blueprint(bp: Blueprint, rng: np.random.Generator) -> tuple[np.ndarra
     # bright path: leave as-is (previous HPF blend was expensive for little gain)
 
     # Musical dotted-8th / quarter delay — keep mix/feedback low so it doesn't comb-filter
-    delay_mix = min(0.14, float(producer["delay"]) * 0.45)
-    music_b = delay_stereo(
-        music_b,
-        time_s=(60.0 / bp.bpm) * (1.0 if style in {"lofi", "slow"} else 0.75),
-        feedback=0.18,
-        mix=delay_mix,
-        ping_pong=style in {"trance", "hifi"},
-    )
-    reverb_mix = min(0.16, float(producer["reverb"]) * 0.5)
-    music_b = schroeder_reverb(music_b, mix=reverb_mix, decay=0.48)
+    delay_mix = min(0.14, float(producer["delay"]) * 0.45 * profile.delay_mix_scale)
+    if delay_mix > 0.02:
+        music_b = delay_stereo(
+            music_b,
+            time_s=(60.0 / bp.bpm) * (1.0 if style in {"lofi", "slow"} else 0.75),
+            feedback=0.18 if not profile.light_fx else 0.1,
+            mix=delay_mix,
+            ping_pong=style in {"trance", "hifi"} and not profile.light_fx,
+        )
+    reverb_mix = min(0.16, float(producer["reverb"]) * 0.5 * profile.reverb_mix_scale)
+    if reverb_mix > 0.02:
+        music_b = schroeder_reverb(
+            music_b, mix=reverb_mix, decay=0.48 if not profile.light_fx else 0.35
+        )
     # Mild width only — heavy side gain + delay was flange-like
     music_b = widen(music_b, amount=min(0.18, float(producer["width"]) * 0.4))
 
@@ -325,8 +354,9 @@ def render_blueprint(bp: Blueprint, rng: np.random.Generator) -> tuple[np.ndarra
         mix = mix[:, idx]
 
     pcm = to_int16_stereo(mix)
+    sr = get_sr()
     meta = {
-        "duration": mix.shape[1] / SR,
+        "duration": mix.shape[1] / sr,
         "bpm": bp.bpm,
         "key": _key_name(bp.key, bp.scale),
         "style": bp.style,
@@ -335,7 +365,8 @@ def render_blueprint(bp: Blueprint, rng: np.random.Generator) -> tuple[np.ndarra
         "producerLabel": bp.producer_label,
         "title": bp.title,
         "bars": bp.bars,
-        "sampleRate": SR,
+        "sampleRate": sr,
+        "profile": profile.name,
     }
     return mix, {"pcm": pcm, "meta": meta}
 
@@ -351,7 +382,7 @@ def _key_name(root: int, scale: str) -> str:
     return f"{names[root % 12]} {quality}"
 
 
-def render_wav_bytes(pcm: bytes) -> bytes:
+def render_wav_bytes(pcm: bytes, sample_rate: int | None = None) -> bytes:
     import wave
     from io import BytesIO
 
@@ -359,6 +390,6 @@ def render_wav_bytes(pcm: bytes) -> bytes:
     with wave.open(buf, "wb") as wf:
         wf.setnchannels(2)
         wf.setsampwidth(2)
-        wf.setframerate(SR)
+        wf.setframerate(int(sample_rate or get_sr()))
         wf.writeframes(pcm)
     return buf.getvalue()

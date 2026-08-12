@@ -12,7 +12,9 @@ from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
 from .engine.generate import generate_match
-from .store import MatchRecord, store
+from .engine.quality import STATIONS
+from .radio_queue import ensure_track, is_generating, queue_depth, schedule_fill
+from .store import MatchRecord, TrackRecord, store
 from .warm import schedule_warm, take_warm
 
 app = FastAPI(title="Clash", version="0.1.0")
@@ -49,6 +51,7 @@ app.add_middleware(
 )
 
 Pace = Literal["slow", "lofi", "hifi", "trance", "dance", "auto"]
+Station = Literal["slow", "lofi", "hifi", "trance", "dance"]
 
 
 class BiasIn(BaseModel):
@@ -68,6 +71,16 @@ class VoteIn(BaseModel):
     choice: Literal["A", "B", "skip"]
 
 
+class RadioSessionIn(BaseModel):
+    sessionId: str | None = None
+    station: Station
+
+
+class RadioNextIn(BaseModel):
+    sessionId: str
+    station: Station
+
+
 def _public_track(track: TrackRecord, reveal: bool) -> dict[str, Any]:
     meta = track.meta
     payload: dict[str, Any] = {
@@ -80,6 +93,8 @@ def _public_track(track: TrackRecord, reveal: bool) -> dict[str, Any]:
         "style": None,
         "tags": [],
         "producer": None,
+        "sampleRate": meta.get("sampleRate"),
+        "profile": meta.get("profile"),
     }
     if reveal:
         payload.update(
@@ -91,6 +106,15 @@ def _public_track(track: TrackRecord, reveal: bool) -> dict[str, Any]:
             }
         )
     return payload
+
+
+def _pack_radio_track(session_id: str, blob: dict[str, Any]) -> TrackRecord:
+    tid = secrets.token_hex(8)
+    fname = f"{secrets.token_hex(5)}.wav"
+    rec = store.write_track(session_id, tid, blob["wav"], blob["meta"], fname)
+    session = store.require(session_id)
+    session.tracks[tid] = rec
+    return rec
 
 
 def _public_match(match: MatchRecord, reveal: bool) -> dict[str, Any]:
@@ -154,6 +178,67 @@ def create_match(body: MatchIn) -> dict[str, Any]:
     payload = _public_match(match, reveal=False)
     payload["sessionId"] = session.id
     return payload
+
+
+@app.post("/api/radio/session")
+def radio_session(body: RadioSessionIn) -> dict[str, Any]:
+    if body.station not in STATIONS:
+        raise HTTPException(status_code=400, detail="pick a station — auto is not allowed")
+    session = store.require(body.sessionId) if body.sessionId else store.new_session()
+    schedule_fill(body.station)
+    # Seed client with up to 2 ready cuts (generate cold if needed for first)
+    queue: list[dict[str, Any]] = []
+    for _ in range(2):
+        try:
+            blob = ensure_track(body.station)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        rec = _pack_radio_track(session.id, blob)
+        queue.append(_public_track(rec, reveal=True))
+    schedule_fill(body.station)
+    return {
+        "sessionId": session.id,
+        "station": body.station,
+        "queue": queue,
+        "queueDepth": queue_depth(body.station),
+        "generating": is_generating(body.station),
+    }
+
+
+@app.post("/api/radio/next")
+def radio_next(body: RadioNextIn) -> dict[str, Any]:
+    if body.station not in STATIONS:
+        raise HTTPException(status_code=400, detail="pick a station — auto is not allowed")
+    session = store.get(body.sessionId)
+    if session is None:
+        raise HTTPException(status_code=404, detail="session expired")
+    try:
+        blob = ensure_track(body.station)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    rec = _pack_radio_track(session.id, blob)
+    schedule_fill(body.station)
+    return {
+        "sessionId": session.id,
+        "station": body.station,
+        "track": _public_track(rec, reveal=True),
+        "queueDepth": queue_depth(body.station),
+        "generating": is_generating(body.station),
+    }
+
+
+@app.get("/api/radio/status")
+def radio_status(sessionId: str | None = None, station: str | None = None) -> dict[str, Any]:
+    st = (station or "").lower().strip()
+    if st and st not in STATIONS:
+        raise HTTPException(status_code=400, detail="invalid station")
+    return {
+        "sessionId": sessionId,
+        "station": st or None,
+        "queueDepth": queue_depth(st) if st else 0,
+        "generating": is_generating(st) if st else False,
+        "stations": list(STATIONS),
+    }
 
 
 @app.get("/api/audio/{track_id}")

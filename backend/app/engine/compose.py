@@ -146,6 +146,8 @@ def compose_track(
     style: str | None = None,
     rhythm: str | None = None,
     target_sec: float = 120.0,
+    thin_parts: bool = False,
+    rhythm_pool: tuple[str, ...] | None = None,
 ) -> Blueprint:
     if style is None:
         style = pick_style(rng, pace, bias_styles)
@@ -166,9 +168,8 @@ def compose_track(
             scale = str(rng.choice(["minor", "dorian"]))
 
     if rhythm is None:
-        rhythm = str(
-            rng.choice(["straight", "broken", "shuffle", "half_time", "minimal"])
-        )
+        pool = rhythm_pool or ("straight", "broken", "shuffle", "half_time", "minimal")
+        rhythm = str(rng.choice(list(pool)))
 
     family = "trance" if style in {"trance", "hifi"} else ("dance" if style == "dance" else ("lofi" if style == "lofi" else "slow"))
     prog = list(PROGRESSIONS[family][int(rng.integers(0, len(PROGRESSIONS[family])))])
@@ -206,9 +207,9 @@ def compose_track(
     )
     _drums(bp, rng)
     _bass(bp, rng)
-    _harmony(bp, rng)
-    _lead(bp, rng)
-    _fx(bp, rng)
+    _harmony(bp, rng, thin_parts=thin_parts)
+    _lead(bp, rng, thin_parts=thin_parts)
+    _fx(bp, rng, light=thin_parts)
     bp.title = _title(rng, style)
     return bp
 
@@ -426,7 +427,7 @@ def _bass(bp: Blueprint, rng: np.random.Generator) -> None:
                 bp.hits.append(Hit(float(beat) + 2, 1.4, fifth - 12 if fifth > 40 else fifth, 0.42, "bass"))
 
 
-def _harmony(bp: Blueprint, rng: np.random.Generator) -> None:
+def _harmony(bp: Blueprint, rng: np.random.Generator, thin_parts: bool = False) -> None:
     style = bp.style
     form = form_sections(bp.bars)
     for bar in range(bp.bars):
@@ -445,13 +446,15 @@ def _harmony(bp: Blueprint, rng: np.random.Generator) -> None:
             for i, tone in enumerate(chord.tones):
                 pan = -0.45 + 0.3 * i
                 bp.hits.append(Hit(float(beat), 4.0, tone, vel, "pad", pan=pan))
-            # arp after intro — thin density on long forms (fewer render calls)
+            # arp after intro — thin density on long forms / radio
             if bar >= form["intro_end"]:
+                if thin_parts and bar % 2 == 1:
+                    continue
                 arp_tones = list(chord.tones) + [chord.tones[0] + 12]
                 if rng.random() < 0.5:
                     arp_tones = arp_tones + list(reversed(arp_tones[1:-1]))
-                # 16ths full; 8ths when bars grow past ~90s-equivalent density
-                step = 0.5 if bp.bars >= 52 else 0.25
+                # 16ths full; 8ths when long or radio
+                step = 0.5 if (bp.bars >= 52 or thin_parts) else 0.25
                 steps = int(round(4.0 / step))
                 for i in range(steps):
                     tone = arp_tones[i % len(arp_tones)]
@@ -459,7 +462,14 @@ def _harmony(bp: Blueprint, rng: np.random.Generator) -> None:
                     if breakdown:
                         vel_a += 0.08
                     bp.hits.append(
-                        Hit(beat + i * step, 0.2, tone + 12, vel_a, pan=-0.2 + 0.4 * ((i % 4) / 3), voice="arp")
+                        Hit(
+                            beat + i * step,
+                            0.2,
+                            tone + 12,
+                            vel_a,
+                            "arp",
+                            pan=-0.2 + 0.4 * ((i % 4) / 3),
+                        )
                     )
         elif style == "dance":
             # offbeat stabs
@@ -483,7 +493,7 @@ def _harmony(bp: Blueprint, rng: np.random.Generator) -> None:
                 bp.hits.append(Hit(float(beat), 4.0, tone, 0.32, "pad", pan=-0.4 + 0.3 * i))
 
 
-def _lead(bp: Blueprint, rng: np.random.Generator) -> None:
+def _lead(bp: Blueprint, rng: np.random.Generator, thin_parts: bool = False) -> None:
     style = bp.style
     form = form_sections(bp.bars)
     notes = scale_notes(bp.key, bp.scale, range(4, 7))
@@ -498,8 +508,8 @@ def _lead(bp: Blueprint, rng: np.random.Generator) -> None:
         motif.append(cur)
 
     beats = total_beats(bp.bars)
-    # Long forms: lead every 4 beats and skip some bars so supersaw cost stays bounded
-    long_form = bp.bars >= 52
+    # Long forms / radio: lead every 4 beats and skip some bars so supersaw cost stays bounded
+    long_form = bp.bars >= 52 or thin_parts
     beat_stride = 4 if long_form else 2
     for beat in range(0, beats, beat_stride):
         bar = beat // 4
@@ -537,17 +547,19 @@ def _lead(bp: Blueprint, rng: np.random.Generator) -> None:
                 bp.hits.append(Hit(beat + i * 1.0, 0.9, pitch - 12, 0.28, "lead"))
 
 
-def _fx(bp: Blueprint, rng: np.random.Generator) -> None:
+def _fx(bp: Blueprint, rng: np.random.Generator, light: bool = False) -> None:
     form = form_sections(bp.bars)
     drop_beat = float(form["drop_start"] * 4)
     roll_beat = float(form["roll_start"] * 4)
     # One soft lift into the drop — no crash/impact volleys or mid-track bursts
     if bp.style in {"trance", "hifi", "dance"}:
-        bp.hits.append(Hit(roll_beat, max(4.0, drop_beat - roll_beat), 0, 0.26, "riser"))
-        bp.hits.append(Hit(drop_beat, 0.8, 0, 0.32, "crash"))
+        if not light:
+            bp.hits.append(Hit(roll_beat, max(4.0, drop_beat - roll_beat), 0, 0.26, "riser"))
+        bp.hits.append(Hit(drop_beat, 0.8, 0, 0.28 if light else 0.32, "crash"))
     if bp.style == "lofi":
-        bp.hits.append(Hit(0.0, float(total_beats(bp.bars)), 0, 0.32, "crackle"))
-        bp.hits.append(Hit(float(form["drop_start"] * 4), 0.5, 0, 0.16, "crash"))
+        bp.hits.append(Hit(0.0, float(total_beats(bp.bars)), 0, 0.28 if light else 0.32, "crackle"))
+        if not light:
+            bp.hits.append(Hit(float(form["drop_start"] * 4), 0.5, 0, 0.16, "crash"))
     if bp.style == "slow":
-        bp.hits.append(Hit(0.0, float(total_beats(bp.bars)), 0, 0.16, "crackle"))
+        bp.hits.append(Hit(0.0, float(total_beats(bp.bars)), 0, 0.14 if light else 0.16, "crackle"))
     # Intentionally no crash-every-N-bars / impact / second lift

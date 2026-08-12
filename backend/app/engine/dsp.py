@@ -2,19 +2,46 @@
 
 from __future__ import annotations
 
+import threading
+
 import numpy as np
 from scipy.signal import butter, lfilter, sosfilt
 
-# 32 kHz is enough for electronic previews and ~27% fewer samples than 44.1 kHz
+# Default for arena. Radio jobs use use_sample_rate() context.
 SR = 32000
+_tls = threading.local()
+
+
+def get_sr() -> int:
+    return int(getattr(_tls, "sr", SR))
+
+
+class use_sample_rate:
+    """Temporarily set sample rate for the current thread (radio vs arena)."""
+
+    def __init__(self, sr: int) -> None:
+        self.sr = int(sr)
+        self._prev: int | None = None
+
+    def __enter__(self) -> int:
+        self._prev = getattr(_tls, "sr", None)
+        _tls.sr = self.sr
+        return self.sr
+
+    def __exit__(self, *args: object) -> None:
+        if self._prev is None:
+            if hasattr(_tls, "sr"):
+                delattr(_tls, "sr")
+        else:
+            _tls.sr = self._prev
 
 
 def samples(seconds: float) -> int:
-    return max(1, int(round(seconds * SR)))
+    return max(1, int(round(seconds * get_sr())))
 
 
 def time_axis(n: int) -> np.ndarray:
-    return np.arange(n, dtype=np.float64) / SR
+    return np.arange(n, dtype=np.float64) / get_sr()
 
 
 def midi_to_hz(midi: float) -> float:
@@ -124,25 +151,27 @@ def biquad_filter(
     q: float = 0.8,
     kind: str = "lowpass",
 ) -> np.ndarray:
-    cutoff = float(np.clip(cutoff, 30.0, SR * 0.45))
+    sr = get_sr()
+    cutoff = float(np.clip(cutoff, 30.0, sr * 0.45))
     q = float(np.clip(q, 0.3, 12.0))
     if kind == "lowpass":
-        sos = butter(2, cutoff, btype="low", fs=SR, output="sos")
+        sos = butter(2, cutoff, btype="low", fs=sr, output="sos")
     elif kind == "highpass":
-        sos = butter(2, cutoff, btype="high", fs=SR, output="sos")
+        sos = butter(2, cutoff, btype="high", fs=sr, output="sos")
     else:
         bw = max(cutoff / max(q, 0.4), 40.0)
         lo = max(30.0, cutoff - bw / 2)
-        hi = min(SR * 0.45, cutoff + bw / 2)
+        hi = min(sr * 0.45, cutoff + bw / 2)
         if hi <= lo:
             hi = lo + 40.0
-        sos = butter(2, [lo, hi], btype="band", fs=SR, output="sos")
+        sos = butter(2, [lo, hi], btype="band", fs=sr, output="sos")
     return sosfilt(sos, x).astype(np.float64)
 
 
 def resonant_lpf(x: np.ndarray, cutoff: float, q: float = 1.2) -> np.ndarray:
-    cutoff = float(np.clip(cutoff, 40.0, SR * 0.42))
-    sos = butter(3, cutoff, btype="low", fs=SR, output="sos")
+    sr = get_sr()
+    cutoff = float(np.clip(cutoff, 40.0, sr * 0.42))
+    sos = butter(3, cutoff, btype="low", fs=sr, output="sos")
     y = sosfilt(sos, x).astype(np.float64)
     if q > 1.0:
         peak = biquad_filter(x, cutoff, q=min(q, 8.0), kind="band")
