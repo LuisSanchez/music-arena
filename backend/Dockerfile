@@ -15,6 +15,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY app ./app
 
 ENV HOST=0.0.0.0
+# Railway/Fly inject PORT at runtime; 8000 is only a local default
 ENV PORT=8000
 # Override at deploy time with your Vercel / compose UI origin(s)
 ENV CORS_ORIGINS=http://localhost:5173,http://localhost:8080,http://127.0.0.1:8080
@@ -22,4 +23,5 @@ ENV CORS_ORIGINS=http://localhost:5173,http://localhost:8080,http://127.0.0.1:80
 EXPOSE 8000
 
 # Generation can exceed a few seconds — keep workers low to limit RAM spikes
-CMD ["sh", "-c", "uvicorn app.main:app --host ${HOST} --port ${PORT} --workers 1"]
+# Use ${PORT} so Railway's assigned port is honored
+CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000} --workers 1"]

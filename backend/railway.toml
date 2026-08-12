@@ -1,0 +1,15 @@
+# Railway service config (place Root Directory = "backend" in the dashboard,
+# or leave root empty and set dockerfilePath = "backend/Dockerfile" instead).
+# Do NOT use a leading slash: "/backend" will fail with
+# "service config at '/backend' not found".
+
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile"
+
+[deploy]
+# Railway injects $PORT; healthcheck hits our FastAPI route
+healthcheckPath = "/api/health"
+healthcheckTimeout = 120
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 5

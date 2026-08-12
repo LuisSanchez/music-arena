@@ -41,29 +41,59 @@ git push -u origin main
 
 ---
 
-## 2. Deploy the API (example: Fly.io)
+## 2. Deploy the API on Railway (recommended for this monorepo)
+
+The repo root is a monorepo (`backend/` + `frontend/`). Railway must build **only** the API.
+
+### Fix for `service config at '/backend' not found`
+
+That error almost always means the **Root Directory** (or config path) is wrong:
+
+| Wrong | Right |
+|-------|--------|
+| `/backend` (leading slash) | `backend` |
+| Config path pointing at a missing folder | Leave default, or use `backend/railway.toml` |
+| Root Directory empty **and** dockerfile path `Dockerfile` | Either set root to `backend`, **or** keep root empty and dockerfile = `backend/Dockerfile` |
+
+### Dashboard setup (pick one approach)
+
+**Option A — Root Directory = `backend` (simplest)**
+
+1. New Project → Deploy from GitHub → select `music-arena`.
+2. Service settings:
+   - **Root Directory:** `backend` (no leading `/`)
+   - **Builder:** Dockerfile  
+   - **Dockerfile path:** `Dockerfile` (relative to that root)
+3. Variables:
+
+| Variable | Value |
+|----------|--------|
+| `CORS_ORIGINS` | `https://your-app.vercel.app` (comma-separate previews if needed) |
+| `PORT` | leave unset — Railway injects it |
+
+4. Generate domain (Settings → Networking → Public Domain).
+5. Health: `https://YOUR-RAILWAY-DOMAIN/api/health` → `{"ok":"clash"}`.
+
+Config-as-code lives at [`backend/railway.toml`](./backend/railway.toml).
+
+**Option B — Root Directory empty (repo root)**
+
+1. Root Directory: *(blank)*
+2. Dockerfile path: `backend/Dockerfile`
+3. Use root [`railway.toml`](./railway.toml) or set the same paths in the UI.
+
+### RAM
+
+Plan for **≥1 GB** (NumPy/SciPy + ~120s WAVs). Generation can take several seconds per match; radio cuts are cheaper.
+
+### Fly.io alternative
 
 ```bash
 cd backend
-# install flyctl, then:
 fly launch --name clash-api --region iad --no-deploy
-# set your Vercel URL after step 3 (or a temporary placeholder)
 fly secrets set CORS_ORIGINS="https://your-app.vercel.app"
 fly deploy
 ```
-
-Railway / Render: connect the `backend/` folder, use the Dockerfile, set:
-
-| Env | Example |
-|-----|---------|
-| `CORS_ORIGINS` | `https://your-app.vercel.app,https://your-app-git-main-you.vercel.app` |
-| `PORT` | platform default (often `8000`) |
-
-Health check: `GET /api/health` → `{"ok":"clash"}`.
-
-Note the public API origin, e.g. `https://clash-api.fly.dev` (no trailing slash).
-
-**RAM:** plan for **≥1 GB**; generation + two WAVs is memory-hungry.
 
 ---
 

@@ -1,0 +1,13 @@
+# Optional monorepo-level config if Root Directory is left as the repo root.
+# Prefer setting the service Root Directory to "backend" in the Railway UI
+# and using backend/railway.toml — do not set Root Directory to "/backend".
+
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "backend/Dockerfile"
+
+[deploy]
+healthcheckPath = "/api/health"
+healthcheckTimeout = 120
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 5
