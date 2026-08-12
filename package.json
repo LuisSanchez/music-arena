@@ -1,0 +1,12 @@
+{
+  "name": "music-arena",
+  "private": true,
+  "scripts": {
+    "dev": "concurrently -n api,web -c yellow,cyan \"npm run dev:api\" \"npm run dev:web\"",
+    "dev:api": "cd backend && python3 -m uvicorn app.main:app --reload --port 8000",
+    "dev:web": "npm --prefix frontend run dev"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  }
+}
