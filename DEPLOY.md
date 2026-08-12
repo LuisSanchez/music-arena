@@ -99,27 +99,43 @@ fly deploy
 
 ## 3. Deploy the frontend on Vercel
 
-1. Import the GitHub repo in Vercel.
-2. Root of monorepo is fine — root `vercel.json` already points at `frontend/`.
-3. **Environment variables** (Production + Preview):
+### Fix for `frontend/frontend/package.json` ENOENT
+
+That means **Root Directory is already `frontend`** but the install command still runs  
+`npm --prefix frontend install` → looks for `frontend/frontend/package.json`.
+
+**Use this setup (recommended):**
+
+| Setting | Value |
+|---------|--------|
+| **Root Directory** | `frontend` (no leading slash) |
+| **Install Command** | `npm install` — or leave empty to use `frontend/vercel.json` |
+| **Build Command** | `npm run build` |
+| **Output Directory** | `dist` |
+| **Framework Preset** | Vite |
+
+In the Vercel dashboard:
+
+1. Project → **Settings → General → Root Directory** → `frontend` → Save  
+2. **Settings → Build & Development Settings**  
+   - Turn **Override** off for Install/Build/Output (so `frontend/vercel.json` applies), **or** set the values above explicitly  
+3. **Settings → Environment Variables** (Production + Preview):
 
 | Name | Value |
 |------|--------|
-| `VITE_API_URL` | `https://clash-api.fly.dev` (your API origin) |
+| `VITE_API_URL` | `https://your-api.up.railway.app` (your Railway public URL, no trailing slash) |
 
-4. Deploy.
+4. Redeploy.
 
-5. Update API CORS with the real Vercel URL(s):
+**Alternative monorepo root:** leave Root Directory **empty**, use root `vercel.json` (`npm install --prefix frontend`, output `frontend/dist`). Do **not** combine empty root with a `frontend` prefix *and* Root Directory = `frontend`.
 
-```bash
-fly secrets set CORS_ORIGINS="https://your-app.vercel.app,https://your-app-git-main-you.vercel.app"
+5. On Railway, set:
+
+```text
+CORS_ORIGINS=https://your-app.vercel.app
 ```
 
-Preview deployments get unique hosts — either:
-
-- add a wildcard strategy on a host that supports it, or  
-- set `CORS_ORIGINS` to include each preview you care about, or  
-- use a fixed production domain only for API access.
+(comma-separate preview hosts if you need them.)
 
 ---
 
