@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import secrets
 from typing import Any, Literal
 
@@ -15,14 +16,30 @@ from .store import MatchRecord, TrackRecord, store
 
 app = FastAPI(title="Clash", version="0.1.0")
 
+_DEFAULT_ORIGINS = [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "http://localhost:4173",
+    "http://127.0.0.1:4173",
+]
+
+
+def _cors_origins() -> list[str]:
+    """Comma-separated CORS_ORIGINS env, e.g. https://clash.vercel.app,http://localhost:5173"""
+    raw = os.getenv("CORS_ORIGINS", "").strip()
+    if not raw:
+        return list(_DEFAULT_ORIGINS)
+    origins = [o.strip() for o in raw.split(",") if o.strip()]
+    # Always keep local Vite for hybrid dev
+    for local in _DEFAULT_ORIGINS:
+        if local not in origins:
+            origins.append(local)
+    return origins
+
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",
-        "http://127.0.0.1:5173",
-        "http://localhost:4173",
-        "http://127.0.0.1:4173",
-    ],
+    allow_origins=_cors_origins(),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

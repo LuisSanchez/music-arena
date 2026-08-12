@@ -26,8 +26,32 @@ export type Match = {
   winnerStyle?: string | null;
 };
 
+/**
+ * Empty in local dev (Vite proxies `/api` → :8000).
+ * On Vercel set VITE_API_URL to the public API origin, e.g. https://clash-api.example.com
+ */
+const API_BASE = (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, "") ?? "";
+
+function apiUrl(path: string): string {
+  if (!path) return path;
+  if (/^https?:\/\//i.test(path)) return path;
+  return `${API_BASE}${path.startsWith("/") ? path : `/${path}`}`;
+}
+
+function withAbsoluteAudio(match: Match): Match {
+  return {
+    ...match,
+    trackA: { ...match.trackA, audioUrl: apiUrl(match.trackA.audioUrl) },
+    trackB: { ...match.trackB, audioUrl: apiUrl(match.trackB.audioUrl) },
+  };
+}
+
+async function apiFetch(path: string, init?: RequestInit): Promise<Response> {
+  return fetch(apiUrl(path), init);
+}
+
 export async function createSession(): Promise<string> {
-  const res = await fetch("/api/session", { method: "POST" });
+  const res = await apiFetch("/api/session", { method: "POST" });
   if (!res.ok) throw new Error("desk offline");
   const data = (await res.json()) as { sessionId: string };
   return data.sessionId;
@@ -38,7 +62,7 @@ export async function createMatch(
   pace: Pace,
   styles: string[],
 ): Promise<Match> {
-  const res = await fetch("/api/match", {
+  const res = await apiFetch("/api/match", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -48,7 +72,7 @@ export async function createMatch(
     }),
   });
   if (!res.ok) throw new Error("could not press the next pair");
-  return res.json() as Promise<Match>;
+  return withAbsoluteAudio((await res.json()) as Match);
 }
 
 export async function voteMatch(
@@ -56,11 +80,11 @@ export async function voteMatch(
   matchId: string,
   choice: "A" | "B" | "skip",
 ): Promise<Match> {
-  const res = await fetch("/api/vote", {
+  const res = await apiFetch("/api/vote", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ sessionId, matchId, choice }),
   });
   if (!res.ok) throw new Error("vote did not land");
-  return res.json() as Promise<Match>;
+  return withAbsoluteAudio((await res.json()) as Match);
 }

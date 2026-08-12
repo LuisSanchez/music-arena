@@ -678,8 +678,19 @@ export function App() {
         </p>
       </div>
 
-      <audio ref={audioA} src={match ? match.trackA.audioUrl : undefined} preload="auto" />
-      <audio ref={audioB} src={match ? match.trackB.audioUrl : undefined} preload="auto" />
+      <audio
+        ref={audioA}
+        src={match ? match.trackA.audioUrl : undefined}
+        preload="auto"
+        crossOrigin="anonymous"
+      />
+      <audio
+        ref={audioB}
+        src={match ? match.trackB.audioUrl : undefined}
+        preload="auto"
+        crossOrigin="anonymous"
+      />
+
 
       {!entered ? (
         <div className="gate">

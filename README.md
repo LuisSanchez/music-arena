@@ -51,6 +51,12 @@ Engines follow electronic patterns — 4-on-the-floor, broken kick, half-time, s
 | [`backend/`](./backend/) | FastAPI + procedural synthesis |
 | [`frontend/`](./frontend/) | React arena UI |
 
+## Deploy (GitHub → Vercel + separate API)
+
+The **UI** goes on **Vercel**. The **API** (track synthesis) needs a long-running host (Fly / Railway / Render) — not Vercel serverless.
+
+See **[DEPLOY.md](./DEPLOY.md)** for the full checklist (`VITE_API_URL`, `CORS_ORIGINS`, Docker).
+
 ## Stack
 
 - Backend: Python, FastAPI, NumPy, SciPy  

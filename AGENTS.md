@@ -158,9 +158,18 @@ python3 -c "from app.engine.generate import generate_match; m=generate_match(1,'
 curl -s -X POST http://127.0.0.1:8000/api/match -H 'Content-Type: application/json' -d '{"pace":"lofi"}'
 ```
 
+## Deploy (Vercel + API host)
+
+- **Frontend → Vercel** (root `vercel.json` builds `frontend/`).
+- **Backend → Fly/Railway/Render** (Dockerfile in `backend/`). Not Vercel serverless.
+- Frontend env: `VITE_API_URL=https://your-api.example.com`
+- Backend env: `CORS_ORIGINS=https://your-app.vercel.app`
+- Details: [DEPLOY.md](./DEPLOY.md)
+
 ## Related docs
 
 - [README.md](./README.md) — product pitch + run instructions
+- [DEPLOY.md](./DEPLOY.md) — GitHub / Vercel / API hosting
 - [backend/AGENTS.md](./backend/AGENTS.md) — API + engine map
 - [backend/app/engine/AGENTS.md](./backend/app/engine/AGENTS.md) — synthesis pipeline detail
 - [frontend/AGENTS.md](./frontend/AGENTS.md) — UI state machine + components
