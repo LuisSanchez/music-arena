@@ -70,12 +70,13 @@ def form_sections(bars: int) -> dict[str, int]:
     }
 
 
-def bars_for_duration(bpm: float, target_sec: float = 90.0) -> int:
+def bars_for_duration(bpm: float, target_sec: float = 120.0) -> int:
     """Pick a bar count so the cut lands near target_sec at this tempo."""
     raw = target_sec * float(bpm) / 240.0  # 4/4: bars = sec * bpm / (4*60)
     # Snap to a multiple of 4 so form sections stay clean
     bars = int(round(raw / 4.0) * 4)
-    return int(np.clip(bars, 28, 64))
+    # Upper bound ~140 BPM @ 120s ≈ 70 bars; headroom for 128s tails
+    return int(np.clip(bars, 32, 80))
 
 
 def pick_style(rng: np.random.Generator, pace: str, bias_styles: list[str] | None) -> str:
@@ -144,7 +145,7 @@ def compose_track(
     bars: int | None = None,
     style: str | None = None,
     rhythm: str | None = None,
-    target_sec: float = 90.0,
+    target_sec: float = 120.0,
 ) -> Blueprint:
     if style is None:
         style = pick_style(rng, pace, bias_styles)
@@ -166,7 +167,7 @@ def compose_track(
 
     if rhythm is None:
         rhythm = str(
-            rng.choice(["straight", "broken", "shuffle", "half_time", "double_hat", "minimal"])
+            rng.choice(["straight", "broken", "shuffle", "half_time", "minimal"])
         )
 
     family = "trance" if style in {"trance", "hifi"} else ("dance" if style == "dance" else ("lofi" if style == "lofi" else "slow"))
@@ -295,14 +296,13 @@ def _drums(bp: Blueprint, rng: np.random.Generator) -> None:
 
         # Hats — density driven by rhythm engine
         if rhythm == "double_hat" or style in {"trance", "hifi"}:
-            steps = (0.0, 0.125, 0.25, 0.375, 0.5, 0.625, 0.75, 0.875) if rhythm == "double_hat" else (0.0, 0.25, 0.5, 0.75)
+            # 16ths max (never 32nds) — dense ticks sound like metal machine gun
+            steps = (0.0, 0.25, 0.5, 0.75)
             for s in steps:
                 if intro and s not in {0.0, 0.5}:
                     continue
-                vel = 0.22 if s in {0.0, 0.5} else 0.38
-                voice = "hat_open" if s in {0.5, 0.75} and rhythm != "double_hat" else "hat"
-                if s == 0.5 and rhythm != "double_hat":
-                    voice = "hat_open"
+                vel = 0.2 if s in {0.0, 0.5} else 0.32
+                voice = "hat_open" if s == 0.5 else "hat"
                 bp.hits.append(
                     Hit(beat + s, 0.15, 42, vel * (0.4 if breakdown else 1), voice, pan=0.12 if s else -0.1)
                 )
@@ -318,10 +318,10 @@ def _drums(bp: Blueprint, rng: np.random.Generator) -> None:
         elif style == "dance" or rhythm in {"straight", "broken", "shuffle"}:
             bp.hits.append(Hit(float(beat), 0.15, 42, 0.26, "hat", pan=-0.12))
             open_at = 0.5 if rhythm != "broken" else 0.75
-            bp.hits.append(Hit(beat + open_at, 0.22, 46, 0.48, "hat_open", pan=0.18))
-            if drop and (rhythm == "broken" or rng.random() < 0.65):
-                bp.hits.append(Hit(beat + 0.75, 0.08, 42, 0.22, "hat", pan=0.3))
-                bp.hits.append(Hit(beat + 0.75, 0.08, 37, 0.3, "shaker", pan=0.4))
+            bp.hits.append(Hit(beat + open_at, 0.22, 46, 0.42, "hat_open", pan=0.18))
+            # Sparse ghost hat only — no shaker ticks (metallic chatter)
+            if drop and rhythm == "broken" and beat % 4 == 3 and rng.random() < 0.35:
+                bp.hits.append(Hit(beat + 0.75, 0.08, 42, 0.16, "hat", pan=0.3))
         elif style == "lofi":
             bp.hits.append(Hit(float(beat), 0.12, 42, 0.22 + 0.08 * rng.random(), "hat", pan=-0.2))
             if beat % 2 == 0:
@@ -330,15 +330,8 @@ def _drums(bp: Blueprint, rng: np.random.Generator) -> None:
             if beat % 2 == 0:
                 bp.hits.append(Hit(beat + 0.5, 0.2, 46, 0.25, "hat_open"))
 
-        # Perc seasoning
-        if rhythm == "broken" and beat % 4 == 3 and bar >= form["intro_end"]:
-            bp.hits.append(Hit(beat + 0.75, 0.1, 37, 0.45, "rim", pan=-0.4))
-        if style == "dance" and beat % 4 == 3 and bar >= form["intro_end"]:
-            bp.hits.append(Hit(beat + 0.75, 0.1, 37, 0.4, "rim", pan=-0.4))
-        if style == "trance" and bar >= form["drop_start"] and beat % 8 == 4:
-            bp.hits.append(Hit(float(beat), 0.3, 51, 0.22, "ride", pan=0.25))
-        if (style == "lofi" or rhythm == "half_time") and beat % 8 == 6 and rng.random() < 0.6:
-            bp.hits.append(Hit(beat + 0.5, 0.15, 41, 0.35, "tom", pan=-0.3))
+        # No rim / ride / tom bursts — those read as metal taps and fatigue the ear
+
 
 def _bass(bp: Blueprint, rng: np.random.Generator) -> None:
     style = bp.style
@@ -452,18 +445,21 @@ def _harmony(bp: Blueprint, rng: np.random.Generator) -> None:
             for i, tone in enumerate(chord.tones):
                 pan = -0.45 + 0.3 * i
                 bp.hits.append(Hit(float(beat), 4.0, tone, vel, "pad", pan=pan))
-            # arp 16ths after intro
+            # arp after intro — thin density on long forms (fewer render calls)
             if bar >= form["intro_end"]:
                 arp_tones = list(chord.tones) + [chord.tones[0] + 12]
                 if rng.random() < 0.5:
                     arp_tones = arp_tones + list(reversed(arp_tones[1:-1]))
-                for i in range(16):
+                # 16ths full; 8ths when bars grow past ~90s-equivalent density
+                step = 0.5 if bp.bars >= 52 else 0.25
+                steps = int(round(4.0 / step))
+                for i in range(steps):
                     tone = arp_tones[i % len(arp_tones)]
                     vel_a = 0.22 if not drop else 0.3
                     if breakdown:
                         vel_a += 0.08
                     bp.hits.append(
-                        Hit(beat + i * 0.25, 0.2, tone + 12, vel_a, "arp", pan=-0.2 + 0.4 * ((i % 4) / 3))
+                        Hit(beat + i * step, 0.2, tone + 12, vel_a, pan=-0.2 + 0.4 * ((i % 4) / 3), voice="arp")
                     )
         elif style == "dance":
             # offbeat stabs
@@ -502,18 +498,29 @@ def _lead(bp: Blueprint, rng: np.random.Generator) -> None:
         motif.append(cur)
 
     beats = total_beats(bp.bars)
-    for beat in range(0, beats, 2):
+    # Long forms: lead every 4 beats and skip some bars so supersaw cost stays bounded
+    long_form = bp.bars >= 52
+    beat_stride = 4 if long_form else 2
+    for beat in range(0, beats, beat_stride):
         bar = beat // 4
         if style in {"trance", "hifi"}:
             if bar < form["drop_start"]:
                 continue
-            for i, pitch in enumerate(motif):
-                # gated 16ths, some rests
-                if rng.random() < 0.12:
+            if long_form and bar % 2 == 1:
+                continue
+            motif_use = motif[::2] if long_form else motif
+            for i, pitch in enumerate(motif_use):
+                # gated 16ths / 8ths, some rests
+                if rng.random() < (0.2 if long_form else 0.12):
                     continue
-                bp.hits.append(Hit(beat + i * 0.25, 0.24, pitch, 0.55 + 0.08 * (i % 3 == 0), "lead", pan=0.05))
+                step = 0.5 if long_form else 0.25
+                bp.hits.append(
+                    Hit(beat + i * step, 0.24, pitch, 0.55 + 0.08 * (i % 3 == 0), "lead", pan=0.05)
+                )
         elif style == "dance":
             if bar < form["intro_end"] * 2 or bar % 4 == 3:
+                continue
+            if long_form and bar % 2 == 0:
                 continue
             # shorter hook, 8ths
             for i, pitch in enumerate(motif[::2]):
@@ -534,25 +541,13 @@ def _fx(bp: Blueprint, rng: np.random.Generator) -> None:
     form = form_sections(bp.bars)
     drop_beat = float(form["drop_start"] * 4)
     roll_beat = float(form["roll_start"] * 4)
-    # riser into drop
+    # One soft lift into the drop — no crash/impact volleys or mid-track bursts
     if bp.style in {"trance", "hifi", "dance"}:
-        bp.hits.append(Hit(roll_beat, max(4.0, drop_beat - roll_beat), 0, 0.45, "riser"))
-        bp.hits.append(Hit(drop_beat, 0.8, 0, 0.7, "crash"))
-        if bp.bars > 8:
-            bp.hits.append(Hit(drop_beat, 1.0, 0, 0.5, "impact"))
-        # second lift mid-drop on longer cuts
-        if bp.bars >= 28:
-            mid = float((form["drop_start"] + (bp.bars - form["drop_start"]) // 2) * 4)
-            bp.hits.append(Hit(mid - 4.0, 4.0, 0, 0.3, "riser"))
-            bp.hits.append(Hit(mid, 0.7, 0, 0.5, "crash"))
+        bp.hits.append(Hit(roll_beat, max(4.0, drop_beat - roll_beat), 0, 0.26, "riser"))
+        bp.hits.append(Hit(drop_beat, 0.8, 0, 0.32, "crash"))
     if bp.style == "lofi":
-        bp.hits.append(Hit(0.0, float(total_beats(bp.bars)), 0, 0.5, "crackle"))
-        bp.hits.append(Hit(float(form["drop_start"] * 4), 0.6, 0, 0.3, "crash"))
+        bp.hits.append(Hit(0.0, float(total_beats(bp.bars)), 0, 0.32, "crackle"))
+        bp.hits.append(Hit(float(form["drop_start"] * 4), 0.5, 0, 0.16, "crash"))
     if bp.style == "slow":
-        bp.hits.append(Hit(0.0, float(total_beats(bp.bars)), 0, 0.25, "crackle"))
-        bp.hits.append(Hit(0.0, 4.0, 0, 0.2, "riser"))
-    # crash every 8 bars
-    for bar in range(0, bp.bars, 8):
-        if bar == 0 and bp.style in {"trance", "hifi"}:
-            continue
-        bp.hits.append(Hit(float(bar * 4), 1.2, 0, 0.4, "crash"))
+        bp.hits.append(Hit(0.0, float(total_beats(bp.bars)), 0, 0.16, "crackle"))
+    # Intentionally no crash-every-N-bars / impact / second lift

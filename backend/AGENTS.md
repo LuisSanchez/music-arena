@@ -7,6 +7,8 @@ FastAPI service that **generates** electronic duel pairs and serves them as WAV 
 ```
 backend/
 ├── AGENTS.md
+├── Dockerfile                # production/local API image
+├── .dockerignore
 ├── requirements.txt          # fastapi, uvicorn, numpy, scipy
 └── app/
     ├── main.py               # routes, CORS, public DTO shaping
@@ -24,6 +26,13 @@ Package import root when running from `backend/`:
 
 ```bash
 python3 -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
+```
+
+Docker (from repo root):
+
+```bash
+docker compose up --build api
+# or full stack: docker compose up --build
 ```
 
 ## Dependencies
@@ -77,13 +86,17 @@ Until vote, public track payloads hide `title`, `style`, `tags`, `producer`. BPM
 | `render_blueprint` | `engine/render.py` | Audio bus mix → PCM |
 | `render_wav_bytes` | `engine/render.py` | PCM → WAV container |
 
-Default target length: **~90 seconds** (`target_sec=90.0` in `main.py` → `generate_match`).
+Default target length: **~120 seconds** (`target_sec=120.0` in `main.py` → `generate_match`).
 
 ## Performance notes
 
-- 90s stereo @ 44.1kHz is heavy; pair generation is multi-second.
-- Frontend prefetches the next pair 30s after a match starts so the next session feels instant.
-- Avoid writing WAVs to disk in the hot path; keep them in `store`.
+- ~120s stereo @ **32 kHz** (~15MB WAV/track on disk).
+- A/B render in a **process pool** (true multi-core); falls back to threads if spawn fails.
+- Long forms thin arps/leads to cap hit count.
+- Track bytes live under `CLASH_CACHE_DIR` (default `$TMPDIR/clash-wav-cache`); sessions only keep paths.
+- **Warm pool** (`app/warm.py`): after each match, a background job pre-presses the next pair for that pace/bias.
+- Frontend also prefetches after 30s of listening.
+- Env toggles: `CLASH_PROCESS_POOL`, `CLASH_WARM_POOL`, `CLASH_WARM_DEPTH`, `CLASH_CACHE_DIR`.
 
 ## Safe change checklist
 

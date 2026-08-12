@@ -36,6 +36,18 @@ npm run preview
 
 From monorepo root, `npm run dev` also starts the API via `concurrently`.
 
+## Docker
+
+```bash
+# from repo root
+docker compose up --build
+# UI on :8080 — nginx serves this build and proxies /api → api:8000
+```
+
+- `Dockerfile` — Node build stage, nginx runtime
+- `nginx.conf` — SPA fallback + long `/api` proxy timeouts (track generation)
+- Build arg `VITE_API_URL` empty for compose (same-origin API)
+
 ## State machine (match)
 
 ```

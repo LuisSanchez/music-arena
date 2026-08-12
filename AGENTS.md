@@ -15,6 +15,19 @@ Product name in the UI: **CLASH**. Repo folder: `music-arena`.
 
 ## Quick start
 
+### Docker Compose (full stack)
+
+```bash
+docker compose up --build
+# UI  http://localhost:8080
+# API http://localhost:8000
+```
+
+- `api` — `backend/Dockerfile`
+- `web` — `frontend/Dockerfile` (nginx serves SPA, proxies `/api` → `api:8000`)
+
+### Dev servers (hot reload)
+
 ```bash
 # from repo root — both servers
 npm install                 # root: concurrently
@@ -42,10 +55,14 @@ Open http://127.0.0.1:5173
 music-arena/
 ├── AGENTS.md                 ← you are here
 ├── README.md                 ← human-facing product overview
+├── DEPLOY.md                 ← Vercel + remote API
+├── docker-compose.yml        ← local full stack
+├── vercel.json
 ├── package.json              ← root scripts: dev / dev:api / dev:web
 ├── .gitignore
 ├── backend/                  ← FastAPI + procedural audio engine
 │   ├── AGENTS.md
+│   ├── Dockerfile
 │   ├── requirements.txt
 │   └── app/
 │       ├── main.py           ← HTTP API
@@ -60,6 +77,8 @@ music-arena/
 │           └── dsp.py        ← filters, reverb, mix helpers
 └── frontend/                 ← React + Vite arena UI
     ├── AGENTS.md
+    ├── Dockerfile            ← multi-stage build + nginx
+    ├── nginx.conf            ← SPA + /api proxy (compose)
     ├── package.json
     ├── vite.config.ts        ← proxies /api → localhost:8000
     └── src/
@@ -90,7 +109,7 @@ POST /api/vote → reveal producers/titles; localStorage ear lock
 | Rule | Detail |
 |------|--------|
 | Independent cuts | A and B are different songs, tempos, and rhythm engines |
-| ~90s length | Bar count from BPM via `bars_for_duration` (~90s target) |
+| ~120s length | Bar count from BPM via `bars_for_duration` (~120s target) |
 | No snare roll | Dense snare-burst fills were removed from all styles |
 | Vote keeps winner | Choosing A/B does **not** stop the winner; it plays out |
 | Prefetch | 30s after a match starts, next pair is generated + audio warmed |

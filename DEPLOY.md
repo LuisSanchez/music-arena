@@ -1,5 +1,22 @@
 # Deploy: GitHub + Vercel (UI) + always-on API
 
+## Local Docker
+
+```bash
+docker compose up --build
+# UI  http://localhost:8080  (nginx → /api → api:8000)
+# API http://localhost:8000
+```
+
+| Service | Image | Role |
+|---------|--------|------|
+| `api` | `backend/Dockerfile` | FastAPI synthesis |
+| `web` | `frontend/Dockerfile` | Vite build + nginx, proxies `/api` |
+
+For production split (Vercel UI + remote API), see below. Compose is the local full-stack path.
+
+---
+
 CLASH is **two services**:
 
 | Piece | What it is | Where it runs |

@@ -27,8 +27,9 @@ render_wav_bytes → audio/wav bytes
 
 ## Important constants / helpers
 
-- **Sample rate:** `dsp.SR = 44100`
-- **Length:** `bars_for_duration(bpm, target_sec=90)` in `compose.py` snaps bars (multiple of 4, clamped 28–64)
+- **Sample rate:** `dsp.SR = 32000` (preview-quality electronic; fewer samples than 44.1k)
+- **Length:** `bars_for_duration(bpm, target_sec=120)` snaps bars (multiple of 4, clamped 32–80)
+- **Perf:** drum one-shots LRU-cached; A/B via `ProcessPoolExecutor` (thread fallback); thinned arps/leads on long forms; supersaw shared LPF; WAV files on disk (`store` + `CLASH_CACHE_DIR`); warm pair pool (`warm.py`)
 - **Form:** `form_sections(bars)` → intro / breakdown / roll / drop bar indices (scales with length)
 - **Rhythms:** `straight | broken | shuffle | half_time | double_hat | minimal`
 - **Styles:** `trance | dance | lofi | slow | hifi`
@@ -45,7 +46,7 @@ Voices include: `kick`, `snare`, `clap`, `hat`, `hat_open`, `ride`, `rim`, `shak
 ## Product constraints (current)
 
 1. **No snare-roll bursts** — dense pre-drop snare machine-gun fills are intentionally absent.
-2. **~90s tracks** — prefer adjusting `target_sec` / `bars_for_duration`, not hardcoding 16/32 bars in callers.
+2. **~120s tracks** — prefer adjusting `target_sec` / `bars_for_duration`, not hardcoding bar counts in callers.
 3. **Independent A/B** — `generate_match` picks distinct rhythm profiles; styles prefer different when pace allows.
 4. **One side faster** — `faster=True/False` biases BPM within style range.
 

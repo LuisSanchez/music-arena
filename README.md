@@ -6,6 +6,19 @@ Nothing is persisted on the server. Your ear (vote history and a 3-in-a-row styl
 
 ## Run it
 
+### Docker Compose (recommended for a full local stack)
+
+```bash
+docker compose up --build
+```
+
+Open [http://localhost:8080](http://localhost:8080).  
+API is also on [http://localhost:8000](http://localhost:8000) (`/api/health`).
+
+Stop with `Ctrl+C` or `docker compose down`.
+
+### Dev servers (hot reload)
+
 ```bash
 # install (once)
 npm install
@@ -35,7 +48,7 @@ npm run dev
 ## How a clash works
 
 1. Pick a pace: **Slow**, **Lo-fi**, **Dance**, **Trance**, **Hi-fi**, or **Auto**.
-2. The desk presses two **independent** tracks (~90s each) — different composition, tempo, and rhythm engine.
+2. The desk presses two **independent** tracks (~120s each) — different composition, tempo, and rhythm engine.
 3. Use play / pause / stop / seek on each stack; master volume and autoplay live in the center column.
 4. Vote after hearing both. Choosing a winner **keeps that cut playing** (it is not skipped).
 5. Three wins in the same lane lock the next press toward that lane (local only).

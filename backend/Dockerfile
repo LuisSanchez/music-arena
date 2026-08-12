@@ -16,8 +16,8 @@ COPY app ./app
 
 ENV HOST=0.0.0.0
 ENV PORT=8000
-# Override at deploy time with your Vercel origin(s)
-ENV CORS_ORIGINS=http://localhost:5173
+# Override at deploy time with your Vercel / compose UI origin(s)
+ENV CORS_ORIGINS=http://localhost:5173,http://localhost:8080,http://127.0.0.1:8080
 
 EXPOSE 8000
 

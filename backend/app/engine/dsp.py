@@ -5,7 +5,8 @@ from __future__ import annotations
 import numpy as np
 from scipy.signal import butter, lfilter, sosfilt
 
-SR = 44100
+# 32 kHz is enough for electronic previews and ~27% fewer samples than 44.1 kHz
+SR = 32000
 
 
 def samples(seconds: float) -> int:
@@ -187,14 +188,16 @@ def widen(stereo_x: np.ndarray, amount: float = 0.25) -> np.ndarray:
 def delay_stereo(
     x: np.ndarray,
     time_s: float,
-    feedback: float = 0.35,
-    mix: float = 0.22,
-    ping_pong: bool = True,
+    feedback: float = 0.18,
+    mix: float = 0.12,
+    ping_pong: bool = False,
 ) -> np.ndarray:
     n = x.shape[1]
     d = samples(time_s)
-    if d <= 0 or d >= n:
+    if d <= 0 or d >= n or mix <= 0.001:
         return x
+    # Avoid sub-20ms delays (classic flanger comb zone)
+    d = max(d, samples(0.03))
     out = x.copy()
     delayed = np.zeros_like(x)
     if ping_pong:
@@ -202,17 +205,19 @@ def delay_stereo(
         delayed[1, d:] = x[0, :-d]
     else:
         delayed[:, d:] = x[:, :-d]
-    # one extra tap
-    d2 = min(n - 1, d * 2)
-    if d2 > 0:
-        delayed[:, d2:] += 0.45 * x[:, :-d2]
-    out = (1.0 - mix) * out + mix * (delayed + feedback * 0.4 * delayed)
+    # Single soft second tap only (weaker than before)
+    d2 = min(n - 1, int(d * 2))
+    if d2 > d:
+        delayed[:, d2:] += 0.22 * x[:, :-d2]
+    wet = delayed + feedback * 0.25 * delayed
+    out = (1.0 - mix) * out + mix * wet
     return out
 
 
-def schroeder_reverb(x: np.ndarray, mix: float = 0.18, decay: float = 0.6) -> np.ndarray:
-    """Cheap stereo reverb from a handful of comb delays."""
-    comb_ms = [29.7, 37.1, 41.1, 43.7, 53.3, 67.9]
+def schroeder_reverb(x: np.ndarray, mix: float = 0.12, decay: float = 0.48) -> np.ndarray:
+    """Room-ish reverb; comb times stay above flanger range."""
+    # Longer combs (~45–95ms) = space, not whooshy modulation
+    comb_ms = [45.1, 53.3, 61.7, 72.9, 84.1, 95.3]
     out = np.zeros_like(x)
     for i, ms in enumerate(comb_ms):
         d = samples(ms / 1000.0)

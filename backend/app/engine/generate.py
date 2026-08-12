@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 from typing import Any
 
 import numpy as np
@@ -11,6 +13,20 @@ from .render import render_blueprint, render_wav_bytes
 from .theory import PACE_TABLE, PRODUCERS
 
 PRODUCER_IDS = list(PRODUCERS.keys())
+
+# Default cut length (~2 minutes). Match generation runs A/B in parallel.
+DEFAULT_TARGET_SEC = 120.0
+
+# Process pool for true multi-core render (falls back to threads)
+_proc_pool: ProcessPoolExecutor | None = None
+_USE_PROCESSES = os.getenv("CLASH_PROCESS_POOL", "1") not in {"0", "false", "False"}
+
+
+def _get_proc_pool() -> ProcessPoolExecutor:
+    global _proc_pool
+    if _proc_pool is None:
+        _proc_pool = ProcessPoolExecutor(max_workers=2)
+    return _proc_pool
 
 
 def generate_track(
@@ -24,7 +40,7 @@ def generate_track(
     bars: int | None = None,
     style: str | None = None,
     rhythm: str | None = None,
-    target_sec: float = 90.0,
+    target_sec: float = DEFAULT_TARGET_SEC,
 ) -> dict[str, Any]:
     rng = np.random.default_rng(seed)
     blueprint = compose_track(
@@ -45,8 +61,12 @@ def generate_track(
     return {
         "wav": wav,
         "meta": payload["meta"],
-        "blueprint": blueprint,
     }
+
+
+def _generate_track_job(args: dict[str, Any]) -> dict[str, Any]:
+    """Picklable worker entry for ProcessPoolExecutor."""
+    return generate_track(**args)
 
 
 def generate_match(
@@ -54,7 +74,7 @@ def generate_match(
     pace: str = "auto",
     bias_styles: list[str] | None = None,
     bars: int | None = None,
-    target_sec: float = 90.0,
+    target_sec: float = DEFAULT_TARGET_SEC,
 ) -> dict[str, Any]:
     """Two independent cuts: different song, different tempo, different rhythm."""
     rng = np.random.default_rng(seed)
@@ -72,55 +92,71 @@ def generate_match(
             style_b = str(rng.choice(others))
 
     # Distinct rhythm engines even when style collides
-    profiles = ["straight", "broken", "shuffle", "half_time", "double_hat", "minimal"]
+    # Prefer smoother grooves; avoid double_hat (dense metallic tick bursts)
+    profiles = ["straight", "broken", "shuffle", "half_time", "minimal"]
     rng.shuffle(profiles)
     rhythm_a, rhythm_b = profiles[0], profiles[1]
 
     # One deck is the faster cut; songs stay independent otherwise
     a_fast = bool(rng.random() < 0.5)
+    seed_a = int(rng.integers(1, 2**31 - 1))
+    seed_b = int(rng.integers(1, 2**31 - 1))
 
-    track_a = generate_track(
-        seed=int(rng.integers(1, 2**31 - 1)),
-        pace=pace,
-        faster=a_fast,
-        bias_styles=bias_styles,
-        producer=a_prod,
-        key=None,
-        scale=None,
-        bars=bars,
-        style=style_a,
-        rhythm=rhythm_a,
-        target_sec=target_sec,
-    )
-    track_b = generate_track(
-        seed=int(rng.integers(1, 2**31 - 1)),
-        pace=pace,
-        faster=not a_fast,
-        bias_styles=bias_styles,
-        producer=b_prod,
-        key=None,
-        scale=None,
-        bars=bars,
-        style=style_b,
-        rhythm=rhythm_b,
-        target_sec=target_sec,
-    )
+    job_a = {
+        "seed": seed_a,
+        "pace": pace,
+        "faster": a_fast,
+        "bias_styles": bias_styles,
+        "producer": a_prod,
+        "key": None,
+        "scale": None,
+        "bars": bars,
+        "style": style_a,
+        "rhythm": rhythm_a,
+        "target_sec": target_sec,
+    }
+    job_b = {
+        "seed": seed_b,
+        "pace": pace,
+        "faster": not a_fast,
+        "bias_styles": bias_styles,
+        "producer": b_prod,
+        "key": None,
+        "scale": None,
+        "bars": bars,
+        "style": style_b,
+        "rhythm": rhythm_b,
+        "target_sec": target_sec,
+    }
+
+    def _run_parallel(executor_cls, job_fn):
+        with executor_cls(max_workers=2) as pool:
+            fut_a = pool.submit(job_fn, job_a)
+            fut_b = pool.submit(job_fn, job_b)
+            return fut_a.result(), fut_b.result()
+
+    track_a = track_b = None
+    if _USE_PROCESSES:
+        try:
+            # Prefer a long-lived process pool under uvicorn; per-call pool also works
+            pool = _get_proc_pool()
+            fut_a = pool.submit(_generate_track_job, job_a)
+            fut_b = pool.submit(_generate_track_job, job_b)
+            track_a = fut_a.result()
+            track_b = fut_b.result()
+        except Exception:
+            try:
+                track_a, track_b = _run_parallel(ProcessPoolExecutor, _generate_track_job)
+            except Exception:
+                track_a = track_b = None
+    if track_a is None or track_b is None:
+        # Threads: still overlaps NumPy/SciPy work that releases the GIL
+        track_a, track_b = _run_parallel(ThreadPoolExecutor, _generate_track_job)
 
     # Hard guarantee: tempos must differ (re-roll B tempo side if equal)
     if abs(track_a["meta"]["bpm"] - track_b["meta"]["bpm"]) < 0.5:
-        track_b = generate_track(
-            seed=int(rng.integers(1, 2**31 - 1)),
-            pace=pace,
-            faster=not a_fast,
-            bias_styles=bias_styles,
-            producer=b_prod,
-            key=None,
-            scale=None,
-            bars=bars,
-            style=style_b,
-            rhythm=rhythm_b,
-            target_sec=target_sec,
-        )
+        job_b["seed"] = int(rng.integers(1, 2**31 - 1))
+        track_b = generate_track(**job_b)
 
     night = int(rng.integers(4, 48))
     return {

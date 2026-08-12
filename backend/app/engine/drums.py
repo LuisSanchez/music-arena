@@ -93,20 +93,21 @@ def snare(rng: np.random.Generator, style: str, character: str) -> np.ndarray:
 
 
 def clap(rng: np.random.Generator, style: str) -> np.ndarray:
-    n = int(0.28 * SR)
+    # Soft layered clap — fewer micro-bursts (was a metallic rattle)
+    n = int(0.22 * SR)
     out = np.zeros(n)
-    offsets = [0, int(0.012 * SR), int(0.021 * SR), int(0.036 * SR)]
+    offsets = [0, int(0.014 * SR)]
     for i, off in enumerate(offsets):
-        burst_n = int(0.04 * SR)
-        burst = white(burst_n, rng) * exp_decay(burst_n, 0.012 + 0.004 * i)
-        burst = biquad_filter(burst, 1800 if style != "lofi" else 1200, q=0.8, kind="band")
-        gain = 1.0 if i == len(offsets) - 1 else 0.45
+        burst_n = int(0.035 * SR)
+        burst = white(burst_n, rng) * exp_decay(burst_n, 0.014 + 0.004 * i)
+        burst = biquad_filter(burst, 1400 if style != "lofi" else 1000, q=0.7, kind="band")
+        gain = 0.85 if i == 0 else 0.55
         end = min(n, off + burst_n)
         out[off:end] += burst[: end - off] * gain
     tail = white(n, rng)
-    tail = biquad_filter(tail, 2400, q=0.5, kind="band") * exp_decay(n, 0.09)
-    out += 0.22 * tail
-    return fade(out, 0.0004, 0.04)
+    tail = biquad_filter(tail, 1800, q=0.45, kind="band") * exp_decay(n, 0.1)
+    out += 0.14 * tail
+    return fade(out * 0.85, 0.0005, 0.05)
 
 
 def hat(rng: np.random.Generator, open_hat: bool, style: str) -> np.ndarray:

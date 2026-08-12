@@ -12,7 +12,8 @@ from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
 from .engine.generate import generate_match
-from .store import MatchRecord, TrackRecord, store
+from .store import MatchRecord, store
+from .warm import schedule_warm, take_warm
 
 app = FastAPI(title="Clash", version="0.1.0")
 
@@ -21,6 +22,8 @@ _DEFAULT_ORIGINS = [
     "http://127.0.0.1:5173",
     "http://localhost:4173",
     "http://127.0.0.1:4173",
+    "http://localhost:8080",
+    "http://127.0.0.1:8080",
 ]
 
 
@@ -117,15 +120,23 @@ def create_session() -> dict[str, str]:
 @app.post("/api/match")
 def create_match(body: MatchIn) -> dict[str, Any]:
     session = store.require(body.sessionId) if body.sessionId else store.new_session()
-    seed = secrets.randbits(32)
     bias_styles = body.bias.styles if body.bias and body.bias.styles else None
-    raw = generate_match(seed=seed, pace=body.pace, bias_styles=bias_styles, target_sec=90.0)
+    target_sec = 120.0
 
-    def pack(side: str, blob: dict[str, Any]) -> TrackRecord:
+    # Prefer a warm pair if the background pool already pressed one
+    raw = take_warm(body.pace, bias_styles)
+    if raw is None:
+        seed = secrets.randbits(32)
+        raw = generate_match(
+            seed=seed, pace=body.pace, bias_styles=bias_styles, target_sec=target_sec
+        )
+
+    def pack(blob: dict[str, Any]):
         tid = secrets.token_hex(8)
-        # randomized filename so a producer cannot leak through the URL
         fname = f"{secrets.token_hex(5)}.wav"
-        rec = TrackRecord(id=tid, wav=blob["wav"], meta=blob["meta"], filename=fname)
+        rec = store.write_track(
+            session.id, tid, blob["wav"], blob["meta"], fname
+        )
         session.tracks[tid] = rec
         return rec
 
@@ -134,10 +145,12 @@ def create_match(body: MatchIn) -> dict[str, Any]:
         created=__import__("time").time(),
         pace=body.pace,
         round_title=raw["roundTitle"],
-        track_a=pack("A", raw["trackA"]),
-        track_b=pack("B", raw["trackB"]),
+        track_a=pack(raw["trackA"]),
+        track_b=pack(raw["trackB"]),
     )
     session.matches[match.id] = match
+    # Top up the warm pool for the next press on this lane
+    schedule_warm(body.pace, bias_styles, target_sec=target_sec)
     payload = _public_match(match, reveal=False)
     payload["sessionId"] = session.id
     return payload
@@ -148,8 +161,12 @@ def audio(track_id: str) -> Response:
     for session in store.sessions.values():
         track = session.tracks.get(track_id)
         if track:
+            try:
+                content = track.read_wav()
+            except OSError as exc:
+                raise HTTPException(status_code=404, detail="cut file missing") from exc
             return Response(
-                content=track.wav,
+                content=content,
                 media_type="audio/wav",
                 headers={
                     "Cache-Control": "no-store",

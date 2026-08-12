@@ -50,3 +50,5 @@ yarn-error.log*
 # Generated audio samples (keep repo clean)
 /samples/
 /tmp-audio/
+clash-wav-cache/
+**/clash-wav-cache/
