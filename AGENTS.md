@@ -56,6 +56,9 @@ music-arena/
 ├── AGENTS.md                 ← you are here
 ├── README.md                 ← human-facing product overview
 ├── DEPLOY.md                 ← Vercel + remote API
+├── docs/
+│   ├── assets/clash.png      ← README banner
+│   └── plans/radio-mode.md   ← executed Radio plan
 ├── docker-compose.yml        ← local full stack
 ├── vercel.json
 ├── package.json              ← root scripts: dev / dev:api / dev:web
