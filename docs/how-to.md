@@ -19,33 +19,26 @@ Profiles live in `backend/app/engine/quality.py` (`ARENA`, `RADIO`).
 
 ```mermaid
 graph TD
-  seed[Seed]
-  style[Style or station]
-  producer[Producer]
-  profile[Quality profile]
-  theory[Harmony and BPM tables]
-  form[Form sections]
-  hits[Hit list]
-  drums[Drum one-shots]
-  tones[Tonal synth]
-  buses[Mix buses]
-  fx[Sidechain and FX]
-  master[Normalize]
-  wav[Stereo WAV]
-  disk[Disk cache]
-  api[Audio API]
-  ui[React player]
-
-  seed --> theory
-  style --> theory
-  producer --> theory
-  profile --> theory
-  theory --> form --> hits
-  hits --> drums --> buses
-  hits --> tones --> buses
+  seed[Seed] --> theory[Theory]
+  genre[Genre] --> theory
+  producer[Producer] --> theory
+  profile[Profile] --> theory
+  theory --> formNode[Form]
+  formNode --> hits[Hits]
+  hits --> drums[Drums]
+  hits --> tones[Tones]
   profile --> tones
-  buses --> fx --> master --> wav --> disk --> api --> ui
+  drums --> buses[Buses]
+  tones --> buses
+  buses --> fx[FX]
+  fx --> master[Master]
+  master --> wav[WAV]
+  wav --> disk[Disk]
+  disk --> api[API]
+  api --> ui[Player]
 ```
+
+*(Node **ids** avoid Mermaid reserved words like `style`. Meaning: Seed / Genre / Producer / Profile → Theory → Form → Hits → Drums & Tones → Buses → FX → Master → WAV → Disk → API → Player.)*
 
 ## Stage 1 — Compose (`compose.py` + `theory.py`)
 
@@ -62,11 +55,11 @@ Builds a **score** (when / what / pitch / velocity), not audio yet.
 
 ```mermaid
 graph LR
-  A[Pick style and BPM] --> B[Pick key and scale]
-  B --> C[Choose rhythm map]
-  C --> D[Place drums]
-  D --> E[Bass and harmony]
-  E --> F[Leads and FX]
+  A[GenreBPM] --> B[KeyScale]
+  B --> C[Rhythm]
+  C --> D[Drums]
+  D --> E[BassHarmony]
+  E --> F[LeadsFX]
   F --> G[Blueprint]
 ```
 
@@ -95,14 +88,13 @@ Sample rate comes from the **quality profile** via a thread-local SR (`use_sampl
 
 ```mermaid
 graph TD
-  M[generate match] --> T1[Track A]
-  M --> T2[Track B]
-  T1 --> P[Arena pair response]
+  M[generateMatch] --> T1[TrackA]
+  M --> T2[TrackB]
+  T1 --> P[PairResponse]
   T2 --> P
-
-  S[Station locked style] --> R[generate radio track]
-  R --> Q[Warm queue]
-  Q --> N[Next radio track]
+  S[Station] --> R[generateRadio]
+  R --> Q[WarmQueue]
+  Q --> N[NextTrack]
 ```
 
 - **Arena:** two independent cuts (different tempo/rhythm/producer); optional parallel process pool; client may prefetch the next pair after ~30s.
