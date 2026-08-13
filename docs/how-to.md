@@ -23,7 +23,7 @@ graph TD
   style[Style or station]
   producer[Producer]
   profile[Quality profile]
-  theory[theory.py harmony and BPM]
+  theory[Harmony and BPM tables]
   form[Form sections]
   hits[Hit list]
   drums[Drum one-shots]
@@ -95,12 +95,12 @@ Sample rate comes from the **quality profile** via a thread-local SR (`use_sampl
 
 ```mermaid
 graph TD
-  M[generate_match] --> T1[Track A]
+  M[generate match] --> T1[Track A]
   M --> T2[Track B]
   T1 --> P[Arena pair response]
   T2 --> P
 
-  S[Station locked style] --> R[generate_radio_track]
+  S[Station locked style] --> R[generate radio track]
   R --> Q[Warm queue]
   Q --> N[Next radio track]
 ```
