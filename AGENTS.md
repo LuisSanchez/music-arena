@@ -57,6 +57,7 @@ music-arena/
 ├── README.md                 ← human-facing product overview
 ├── DEPLOY.md                 ← Vercel + remote API
 ├── docs/
+│   ├── how-to.md             ← engine explanation + Mermaid diagrams
 │   ├── assets/clash.png      ← README banner
 │   └── plans/radio-mode.md   ← executed Radio plan
 ├── docker-compose.yml        ← local full stack
@@ -199,6 +200,7 @@ curl -s -X POST http://127.0.0.1:8000/api/match -H 'Content-Type: application/js
 ## Related docs
 
 - [README.md](./README.md) — product pitch + run instructions
+- [docs/how-to.md](./docs/how-to.md) — how the music engine works (Mermaid)
 - [DEPLOY.md](./DEPLOY.md) — GitHub / Vercel / API hosting
 - [backend/AGENTS.md](./backend/AGENTS.md) — API + engine map
 - [backend/app/engine/AGENTS.md](./backend/app/engine/AGENTS.md) — synthesis pipeline detail

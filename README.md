@@ -85,12 +85,17 @@ The **UI** goes on **Vercel**. The **API** (track synthesis) needs a long-runnin
 
 See **[DEPLOY.md](./DEPLOY.md)** for the full checklist (`VITE_API_URL`, `CORS_ORIGINS`, Docker).
 
+## How the engine works
+
+See **[docs/how-to.md](./docs/how-to.md)** for a full walkthrough of compose → render → WAV, including Mermaid diagrams.
+
 ## Repo map
 
 | Path | Role |
 |------|------|
 | [`AGENTS.md`](./AGENTS.md) | Orientation for coding agents |
 | [`DEPLOY.md`](./DEPLOY.md) | Vercel + remote API hosting |
+| [`docs/how-to.md`](./docs/how-to.md) | Music engine explained (+ diagrams) |
 | [`docs/`](./docs/) | Assets + executed product plans |
 | [`docs/plans/radio-mode.md`](./docs/plans/radio-mode.md) | Radio mode plan (implemented) |
 | [`backend/`](./backend/) | FastAPI + procedural synthesis |

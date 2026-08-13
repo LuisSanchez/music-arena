@@ -2,6 +2,8 @@
 
 Procedural electronic synthesis: **compose** a timed hit list, then **render** to stereo WAV.
 
+Human-oriented walkthrough + Mermaid diagrams: [docs/how-to.md](../../../docs/how-to.md).
+
 ## Pipeline
 
 ```
