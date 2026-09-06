@@ -124,7 +124,7 @@ POST /api/vote → reveal producers/titles; localStorage ear lock
 
 | Method | Path | Purpose |
 |--------|------|---------|
-| GET | `/api/health` | Liveness |
+| GET | `/api/health` | Liveness + `{ cold, engine, idleSeconds }` (does not reset idle) |
 | POST | `/api/session` | New session id |
 | POST | `/api/match` | Body: `{ sessionId?, pace, bias? }` → pair + audio URLs |
 | GET | `/api/audio/{track_id}` | WAV bytes (`audio/wav`, no-store) |
@@ -153,7 +153,7 @@ CORS allows Vite on `5173` / `4173`. Frontend always talks to `/api/*` (Vite pro
 | Goal | Start here |
 |------|------------|
 | New API fields / endpoints | `backend/app/main.py`, `frontend/src/lib/api.ts` |
-| Session lifetime / memory | `backend/app/store.py` |
+| Session lifetime / memory | `backend/app/store.py`, `backend/app/reclaim.py` |
 | Match pairing / bias / length | `backend/app/engine/generate.py` |
 | Groove, form, drums, bass | `backend/app/engine/compose.py` |
 | Timbre / mix / reverb | `backend/app/engine/render.py`, `dsp.py`, `drums.py` |

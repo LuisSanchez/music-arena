@@ -19,8 +19,10 @@ frontend/
     │   ├── Deck.tsx        # Track A/B card: play/pause, seek, stop, vote
     │   └── Scope.tsx       # Analyser scope canvas
     ├── lib/
-    │   ├── api.ts          # types + fetch helpers
-    │   └── prefs.ts        # ear lock in localStorage
+    │   ├── api.ts          # types + fetch helpers + health / cold-start hint
+    │   ├── engine.ts       # useEngineHealth (desk sleeping vs live)
+    │   ├── prefs.ts        # ear lock in localStorage
+    │   └── radio.ts        # radio session / next helpers
     └── styles/
         └── global.css      # synthwave theme (magenta/cyan/violet)
 ```
@@ -78,7 +80,8 @@ Voting for A or B must **not** cut the chosen track. `winnerHoldRef` tracks that
 | File | Notes |
 |------|-------|
 | `App.tsx` | All orchestration: refs for timers, prefetch, Web Audio graph, vote |
-| `lib/api.ts` | `Pace`, `Track`, `Match`, `createMatch`, `voteMatch` |
+| `lib/api.ts` | `Pace`, `Track`, `Match`, `createMatch`, `voteMatch`, `getHealth`, `COLD_START_HINT` |
+| `lib/engine.ts` | `useEngineHealth` — polls `/api/health` for sleeping vs live |
 | `lib/prefs.ts` | `recordVote`, `inferLock` (3 shared tags → lock) |
 | `components/Deck.tsx` | Presentational player card |
 | `styles/global.css` | Design tokens: `--magenta`, `--cyan`, `--violet`, dark panels |
@@ -100,6 +103,16 @@ Voting for A or B must **not** cut the chosen track. `winnerHoldRef` tracks that
 - Baseline UX: EDMBench (two cards + center column: queue, scope, skip, volume, autoplay).
 - Palette is **synthwave** (not yellow/sodium warehouse). A = cyan, B = magenta.
 - Do not reintroduce yellow as the primary accent unless product asks.
+
+## Cold start
+
+The API sleeps render workers after ~3 minutes with no real traffic so Railway RAM drops. UI must say so:
+
+- Nav pill: `desk sleeping` / `desk live`
+- Gate / radio idle: first pair after idle is slower; later ones are faster
+- Press overlay uses the same copy when `coldStart` / health says sleeping
+
+`GET /api/health` reports `{ cold, engine, idleSeconds }`. Match and radio payloads include `coldStart`.
 
 ## When changing API contracts
 

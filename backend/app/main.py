@@ -4,20 +4,45 @@ from __future__ import annotations
 
 import os
 import secrets
+from contextlib import asynccontextmanager
 from typing import Any, Literal
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import Response
+from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, Field
 
-from .engine.generate import generate_match
 from .engine.quality import STATIONS
 from .radio_queue import ensure_track, is_generating, queue_depth, schedule_fill
+from .reclaim import collect, generation_job, is_cold, mark_hot, snapshot, start_janitor, touch
 from .store import MatchRecord, TrackRecord, store
 from .warm import schedule_warm, take_warm
 
-app = FastAPI(title="Clash", version="0.1.0")
+# Health + docs must not count as "someone is using the desk"
+_IDLE_SKIP_PREFIXES = (
+    "/api/health",
+    "/health",
+    "/docs",
+    "/redoc",
+    "/openapi.json",
+    "/api/radio/status",
+)
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    start_janitor()
+    yield
+    try:
+        from .engine.generate import shutdown_proc_pool
+
+        shutdown_proc_pool()
+    except Exception:
+        pass
+    collect()
+
+
+app = FastAPI(title="Clash", version="0.1.0", lifespan=lifespan)
 
 _DEFAULT_ORIGINS = [
     "http://localhost:5173",
@@ -49,6 +74,15 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def mark_activity(request: Request, call_next):
+    """Record real client traffic. Railway healthchecks must not keep workers alive."""
+    path = request.url.path
+    if not any(path == p or path.startswith(p + "/") for p in _IDLE_SKIP_PREFIXES):
+        touch()
+    return await call_next(request)
 
 Pace = Literal["slow", "lofi", "hifi", "trance", "dance", "auto"]
 Station = Literal["slow", "lofi", "hifi", "trance", "dance"]
@@ -131,8 +165,8 @@ def _public_match(match: MatchRecord, reveal: bool) -> dict[str, Any]:
 
 
 @app.get("/api/health")
-def health() -> dict[str, str]:
-    return {"ok": "clash"}
+def health() -> dict[str, Any]:
+    return snapshot()
 
 
 @app.post("/api/session")
@@ -143,17 +177,22 @@ def create_session() -> dict[str, str]:
 
 @app.post("/api/match")
 def create_match(body: MatchIn) -> dict[str, Any]:
+    from .engine.generate import generate_match
+
     session = store.require(body.sessionId) if body.sessionId else store.new_session()
     bias_styles = body.bias.styles if body.bias and body.bias.styles else None
     target_sec = 120.0
+    was_cold = is_cold()
 
     # Prefer a warm pair if the background pool already pressed one
-    raw = take_warm(body.pace, bias_styles)
-    if raw is None:
-        seed = secrets.randbits(32)
-        raw = generate_match(
-            seed=seed, pace=body.pace, bias_styles=bias_styles, target_sec=target_sec
-        )
+    with generation_job():
+        raw = take_warm(body.pace, bias_styles)
+        if raw is None:
+            seed = secrets.randbits(32)
+            raw = generate_match(
+                seed=seed, pace=body.pace, bias_styles=bias_styles, target_sec=target_sec
+            )
+        mark_hot()
 
     def pack(blob: dict[str, Any]):
         tid = secrets.token_hex(8)
@@ -162,6 +201,8 @@ def create_match(body: MatchIn) -> dict[str, Any]:
             session.id, tid, blob["wav"], blob["meta"], fname
         )
         session.tracks[tid] = rec
+        # WAV is on disk now — drop the in-RAM copy
+        blob["wav"] = b""
         return rec
 
     match = MatchRecord(
@@ -173,10 +214,13 @@ def create_match(body: MatchIn) -> dict[str, Any]:
         track_b=pack(raw["trackB"]),
     )
     session.matches[match.id] = match
+    store.prune_session(session)
+    collect()
     # Top up the warm pool for the next press on this lane
     schedule_warm(body.pace, bias_styles, target_sec=target_sec)
     payload = _public_match(match, reveal=False)
     payload["sessionId"] = session.id
+    payload["coldStart"] = was_cold
     return payload
 
 
@@ -185,6 +229,7 @@ def radio_session(body: RadioSessionIn) -> dict[str, Any]:
     if body.station not in STATIONS:
         raise HTTPException(status_code=400, detail="pick a station — auto is not allowed")
     session = store.require(body.sessionId) if body.sessionId else store.new_session()
+    was_cold = is_cold()
     schedule_fill(body.station)
     # Seed client with up to 2 ready cuts (generate cold if needed for first)
     queue: list[dict[str, Any]] = []
@@ -194,7 +239,11 @@ def radio_session(body: RadioSessionIn) -> dict[str, Any]:
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         rec = _pack_radio_track(session.id, blob)
+        blob["wav"] = b""
         queue.append(_public_track(rec, reveal=True))
+    store.prune_session(session)
+    mark_hot()
+    collect()
     schedule_fill(body.station)
     return {
         "sessionId": session.id,
@@ -202,6 +251,7 @@ def radio_session(body: RadioSessionIn) -> dict[str, Any]:
         "queue": queue,
         "queueDepth": queue_depth(body.station),
         "generating": is_generating(body.station),
+        "coldStart": was_cold,
     }
 
 
@@ -216,7 +266,12 @@ def radio_next(body: RadioNextIn) -> dict[str, Any]:
         blob = ensure_track(body.station)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    was_cold = is_cold()
     rec = _pack_radio_track(session.id, blob)
+    blob["wav"] = b""
+    store.prune_session(session)
+    mark_hot()
+    collect()
     schedule_fill(body.station)
     return {
         "sessionId": session.id,
@@ -224,6 +279,7 @@ def radio_next(body: RadioNextIn) -> dict[str, Any]:
         "track": _public_track(rec, reveal=True),
         "queueDepth": queue_depth(body.station),
         "generating": is_generating(body.station),
+        "coldStart": was_cold,
     }
 
 
@@ -246,17 +302,18 @@ def audio(track_id: str) -> Response:
     for session in store.sessions.values():
         track = session.tracks.get(track_id)
         if track:
-            try:
-                content = track.read_wav()
-            except OSError as exc:
-                raise HTTPException(status_code=404, detail="cut file missing") from exc
-            return Response(
-                content=content,
+            from pathlib import Path
+
+            path = Path(track.path)
+            if not path.is_file():
+                raise HTTPException(status_code=404, detail="cut file missing")
+            # Stream from disk — do not slurp 15MB WAVs into the API process
+            return FileResponse(
+                path=path,
                 media_type="audio/wav",
-                headers={
-                    "Cache-Control": "no-store",
-                    "Content-Disposition": f'inline; filename="{track.filename}"',
-                },
+                filename=track.filename,
+                content_disposition_type="inline",
+                headers={"Cache-Control": "no-store"},
             )
     raise HTTPException(status_code=404, detail="cut not on the desk")
 

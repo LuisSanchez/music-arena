@@ -1,5 +1,6 @@
 # Clash API — long-running process (not Vercel serverless).
-# Suitable for Fly.io, Railway, Render, or any Docker host with ≥1GB RAM.
+# Needs ~1GB headroom while pressing a pair; idle reclaim drops workers after
+# CLASH_IDLE_RECLAIM_SEC so Railway RAM is not billed at ~1GB when unused.
 
 FROM python:3.11-slim
 
@@ -19,6 +20,14 @@ ENV HOST=0.0.0.0
 ENV PORT=8000
 # Override at deploy time with your Vercel / compose UI origin(s)
 ENV CORS_ORIGINS=http://localhost:5173,http://localhost:8080,http://127.0.0.1:8080
+# Keep BLAS/OpenMP from spawning a thread army (RAM) per worker
+ENV OMP_NUM_THREADS=1
+ENV OPENBLAS_NUM_THREADS=1
+ENV MKL_NUM_THREADS=1
+ENV NUMEXPR_NUM_THREADS=1
+ENV VECLIB_MAXIMUM_THREADS=1
+# After this many seconds with no real client traffic, kill render workers
+ENV CLASH_IDLE_RECLAIM_SEC=180
 
 EXPOSE 8000
 

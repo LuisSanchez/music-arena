@@ -7,7 +7,7 @@ import {
   writeStation,
   type Station,
 } from "../lib/radio";
-import type { Track } from "../lib/api";
+import { COLD_START_HINT, type Track } from "../lib/api";
 
 const CLIENT_BUFFER = 4;
 const VOLUME_KEY = "clash.volume.v1";
@@ -31,9 +31,11 @@ function readVolume(): number {
 
 type Props = {
   onBack: () => void;
+  engineCold?: boolean;
+  markHot?: () => void;
 };
 
-export function Radio({ onBack }: Props) {
+export function Radio({ onBack, engineCold = true, markHot }: Props) {
   const [station, setStation] = useState<Station>(() => readStation());
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [queue, setQueue] = useState<Track[]>([]);
@@ -45,6 +47,7 @@ export function Radio({ onBack }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [volume, setVolume] = useState(() => readVolume());
   const [onAir, setOnAir] = useState(false);
+  const [wakeSlow, setWakeSlow] = useState(false);
 
   const audioRef = useRef<HTMLAudioElement>(null);
   const queueRef = useRef<Track[]>([]);
@@ -114,6 +117,7 @@ export function Radio({ onBack }: Props) {
 
   async function goOnAir() {
     setError(null);
+    setWakeSlow(engineCold);
     setWarming(true);
     setOnAir(true);
     writeStation(station);
@@ -127,6 +131,8 @@ export function Radio({ onBack }: Props) {
       queueRef.current = rest;
       preload(rest);
       setPlaying(true);
+      setWakeSlow(Boolean(session.coldStart));
+      markHot?.();
       // keep filling in background
       void fillQueue();
     } catch (err) {
@@ -218,6 +224,7 @@ export function Radio({ onBack }: Props) {
         <p className="radio-sub">
           Pick one lane. Low-cost cuts keep the station warm without burning the desk.
         </p>
+        {engineCold ? <p className="cold-note">{COLD_START_HINT}</p> : null}
         <div className="pace-rail" role="tablist" aria-label="Station">
           {STATIONS.map((s) => (
             <button
@@ -249,8 +256,11 @@ export function Radio({ onBack }: Props) {
         {!onAir ? (
           <div className="radio-idle">
             <p>Station locked to <strong>{station}</strong> — no auto mix.</p>
+            {engineCold ? (
+              <p className="cold-note">First cuts after idle are slower. The queue stays warm after that.</p>
+            ) : null}
             <button type="button" className="enter" onClick={() => void goOnAir()}>
-              Go on air
+              {engineCold ? "Wake station" : "Go on air"}
             </button>
           </div>
         ) : (
@@ -259,7 +269,14 @@ export function Radio({ onBack }: Props) {
               <div className="side-tag" data-live={playing}>
                 {playing ? "ON AIR" : "PAUSED"}
               </div>
-              <h2>{current?.title ?? (warming ? "Pressing vinyl…" : "Waiting for next cut")}</h2>
+              <h2>
+                {current?.title ??
+                  (warming
+                    ? wakeSlow || engineCold
+                      ? "Waking the station…"
+                      : "Pressing vinyl…"
+                    : "Waiting for next cut")}
+              </h2>
               <div className="meta-chip">
                 {current
                   ? `${current.style ?? station} · ${current.bpm.toFixed(0)} bpm · ${current.producer ?? "—"}`
@@ -348,7 +365,11 @@ export function Radio({ onBack }: Props) {
                   </span>
                 ))
               )}
-              {warming ? <span className="meta-chip">warming</span> : null}
+              {warming ? (
+                <span className="meta-chip">
+                  {wakeSlow || engineCold ? "cold start" : "warming"}
+                </span>
+              ) : null}
             </div>
           </>
         )}

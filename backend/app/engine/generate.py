@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import sys
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 from typing import Any
 
@@ -19,9 +20,26 @@ PRODUCER_IDS = list(PRODUCERS.keys())
 # Default cut length (~2 minutes). Match generation runs A/B in parallel.
 DEFAULT_TARGET_SEC = 120.0
 
-# Process pool for true multi-core render (falls back to threads)
+# Process pool for true multi-core render (falls back to threads).
+# Workers are expensive (~300–500MB each after a render) and are torn
+# down by reclaim.shutdown_proc_pool() after idle.
 _proc_pool: ProcessPoolExecutor | None = None
 _USE_PROCESSES = os.getenv("CLASH_PROCESS_POOL", "1") not in {"0", "false", "False"}
+
+
+def _trim_local() -> None:
+    """Drop freed NumPy arenas back to the OS inside a worker."""
+    import gc
+
+    gc.collect()
+    if sys.platform != "linux":
+        return
+    try:
+        import ctypes
+
+        ctypes.CDLL("libc.so.6").malloc_trim(0)
+    except Exception:
+        return
 
 
 def _get_proc_pool() -> ProcessPoolExecutor:
@@ -29,6 +47,23 @@ def _get_proc_pool() -> ProcessPoolExecutor:
     if _proc_pool is None:
         _proc_pool = ProcessPoolExecutor(max_workers=2)
     return _proc_pool
+
+
+def pool_alive() -> bool:
+    return _proc_pool is not None
+
+
+def shutdown_proc_pool() -> None:
+    """Kill render workers so idle RAM falls back to the API process."""
+    global _proc_pool
+    pool = _proc_pool
+    _proc_pool = None
+    if pool is None:
+        return
+    try:
+        pool.shutdown(wait=False, cancel_futures=True)
+    except Exception:
+        pass
 
 
 def generate_track(
@@ -97,7 +132,36 @@ def generate_radio_track(
 
 def _generate_track_job(args: dict[str, Any]) -> dict[str, Any]:
     """Picklable worker entry for ProcessPoolExecutor."""
-    return generate_track(**args)
+    try:
+        return generate_track(**args)
+    finally:
+        _trim_local()
+
+
+def _generate_radio_job(args: dict[str, Any]) -> dict[str, Any]:
+    try:
+        return generate_radio_track(seed=int(args["seed"]), station=str(args["station"]))
+    finally:
+        _trim_local()
+
+
+def run_radio_track(seed: int, station: str) -> dict[str, Any]:
+    """Render a radio cut in the process pool so the API process stays thin."""
+    if _USE_PROCESSES:
+        try:
+            pool = _get_proc_pool()
+            return pool.submit(
+                _generate_radio_job, {"seed": seed, "station": station}
+            ).result()
+        except Exception:
+            try:
+                with ProcessPoolExecutor(max_workers=1) as pool:
+                    return pool.submit(
+                        _generate_radio_job, {"seed": seed, "station": station}
+                    ).result()
+            except Exception:
+                pass
+    return generate_radio_track(seed=seed, station=station)
 
 
 def generate_match(

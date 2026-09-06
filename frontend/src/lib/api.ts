@@ -24,7 +24,24 @@ export type Match = {
   choice: "A" | "B" | "skip" | null;
   winnerTags?: string[];
   winnerStyle?: string | null;
+  /** True when the API had to wake render workers for this request. */
+  coldStart?: boolean;
 };
+
+export type EngineHealth = {
+  ok: string;
+  cold: boolean;
+  engine: "sleeping" | "ready";
+  idleSeconds: number;
+  busy?: number;
+  pool?: boolean;
+  warmPairs?: number;
+  radioCuts?: number;
+  rssMb?: number | null;
+};
+
+export const COLD_START_HINT =
+  "The desk sleeps when nobody is listening so memory stays cheap. The first pair after idle is slower; the next ones will be faster.";
 
 /**
  * Empty in local dev (Vite proxies `/api` → :8000).
@@ -48,6 +65,12 @@ function withAbsoluteAudio(match: Match): Match {
 
 async function apiFetch(path: string, init?: RequestInit): Promise<Response> {
   return fetch(apiUrl(path), init);
+}
+
+export async function getHealth(): Promise<EngineHealth> {
+  const res = await apiFetch("/api/health");
+  if (!res.ok) throw new Error("desk offline");
+  return (await res.json()) as EngineHealth;
 }
 
 export async function createSession(): Promise<string> {

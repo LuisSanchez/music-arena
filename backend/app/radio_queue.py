@@ -9,7 +9,6 @@ import time
 from collections import defaultdict, deque
 from typing import Any
 
-from .engine.generate import generate_radio_track
 from .engine.quality import STATIONS
 
 _DEPTH = int(os.getenv("RADIO_WARM_DEPTH", "4"))
@@ -22,6 +21,20 @@ _queues: dict[str, deque[dict[str, Any]]] = defaultdict(deque)
 _inflight: dict[str, int] = defaultdict(int)
 _sem = threading.Semaphore(_WORKERS)
 _active_stations: dict[str, float] = {}  # station -> last touch
+
+
+def radio_held() -> int:
+    with _lock:
+        return sum(len(q) for q in _queues.values())
+
+
+def clear_radio() -> None:
+    """Drop unused station queues so WAV bytes leave RAM on idle."""
+    with _lock:
+        for q in _queues.values():
+            q.clear()
+        _queues.clear()
+        _active_stations.clear()
 
 
 def touch_station(station: str) -> None:
@@ -77,8 +90,12 @@ def schedule_fill(station: str) -> None:
                     # another worker is generating; stop this filler
                     break
                 try:
+                    from .engine.generate import run_radio_track
+                    from .reclaim import generation_job
+
                     seed = secrets.randbits(31)
-                    track = generate_radio_track(seed=seed, station=station)
+                    with generation_job():
+                        track = run_radio_track(seed=seed, station=station)
                     with _lock:
                         if len(_queues[station]) < _DEPTH:
                             _queues[station].append(track)
@@ -102,8 +119,12 @@ def ensure_track(station: str) -> dict[str, Any]:
     if ready is not None:
         schedule_fill(station)
         return ready
-    # cold path
+    # cold path — render in the process pool, not the API process
+    from .engine.generate import run_radio_track
+    from .reclaim import generation_job
+
     seed = secrets.randbits(31)
-    track = generate_radio_track(seed=seed, station=station)
+    with generation_job():
+        track = run_radio_track(seed=seed, station=station)
     schedule_fill(station)
     return track

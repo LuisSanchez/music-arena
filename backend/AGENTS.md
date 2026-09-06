@@ -47,7 +47,7 @@ Defined in `app/main.py`:
 - `POST /api/match` → creates two tracks, returns sealed public match
 - `GET /api/audio/{track_id}` → raw WAV
 - `POST /api/vote` → marks match voted, returns revealed meta + winner tags
-- `GET /api/health` → `{ "ok": "clash" }`
+- `GET /api/health` → `{ "ok": "clash", "cold", "engine": "sleeping"|"ready", "idleSeconds", "rssMb?" }` (Railway healthchecks do **not** keep workers alive)
 
 ### Match body
 
@@ -69,12 +69,21 @@ Until vote, public track payloads hide `title`, `style`, `tags`, `producer`. BPM
 
 `app/store.py`:
 
-- In-memory only (`MemoryStore`)
-- TTL purge: **2 hours** since session create
-- Each session holds `matches` + `tracks` (WAV bytes in RAM)
+- In-memory index (`MemoryStore`); WAV files live under `CLASH_CACHE_DIR`
+- TTL purge: **2 hours** since last activity (`last_seen`)
+- Each session keeps the newest 2 matches + a short radio tail; older files are deleted
 - Missing session on match → new session is created transparently
 
 **Implication:** restarting the API wipes all audio URLs. Frontend must re-press a pair.
+
+## Idle RAM (Railway)
+
+`app/reclaim.py` + `engine.generate.shutdown_proc_pool`:
+
+- After `CLASH_IDLE_RECLAIM_SEC` (default **180s**) with no real client traffic, the janitor kills the 2 render workers, drops warm/radio WAV caches, and `malloc_trim`s.
+- Healthchecks (`GET /api/health`) do **not** count as traffic — otherwise the desk never sleeps.
+- First `/api/match` or radio cut after sleep is a **cold start** (`coldStart: true` on the payload). Later presses reuse the pool.
+- Env: `CLASH_IDLE_RECLAIM_SEC`, `CLASH_IDLE_SWEEP_SEC`, `CLASH_PROCESS_POOL`, `CLASH_WARM_POOL`.
 
 ## Generation entry points
 
@@ -93,10 +102,10 @@ Default target length: **~120 seconds** (`target_sec=120.0` in `main.py` → `ge
 - ~120s stereo @ **32 kHz** (~15MB WAV/track on disk).
 - A/B render in a **process pool** (true multi-core); falls back to threads if spawn fails.
 - Long forms thin arps/leads to cap hit count.
-- Track bytes live under `CLASH_CACHE_DIR` (default `$TMPDIR/clash-wav-cache`); sessions only keep paths.
-- **Warm pool** (`app/warm.py`): after each match, a background job pre-presses the next pair for that pace/bias.
+- Track bytes live under `CLASH_CACHE_DIR` (default `$TMPDIR/clash-wav-cache`); sessions only keep paths. Audio is streamed with `FileResponse`.
+- **Warm pool** (`app/warm.py`): after each match, a background job pre-presses the next pair for that pace/bias. Cleared on idle reclaim.
 - Frontend also prefetches after 30s of listening.
-- Env toggles: `CLASH_PROCESS_POOL`, `CLASH_WARM_POOL`, `CLASH_WARM_DEPTH`, `CLASH_CACHE_DIR`.
+- Env toggles: `CLASH_PROCESS_POOL`, `CLASH_WARM_POOL`, `CLASH_WARM_DEPTH`, `CLASH_CACHE_DIR`, `CLASH_IDLE_RECLAIM_SEC`.
 
 ## Safe change checklist
 

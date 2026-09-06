@@ -118,6 +118,24 @@ input:focus-visible {
   color: var(--ink-3);
 }
 
+.engine-pill {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  padding: 5px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  color: var(--cyan);
+  background: var(--cyan-soft);
+}
+
+.engine-pill[data-cold="true"] {
+  color: var(--ink-3);
+  background: rgba(18, 14, 32, 0.7);
+  border-color: var(--line);
+}
+
 .mode-switch {
   display: flex;
   gap: 4px;
@@ -879,6 +897,27 @@ input:focus-visible {
   max-width: 40ch;
   margin: 18px auto 28px;
   line-height: 1.55;
+}
+
+.cold-note,
+.gate-card p.cold-note,
+.press-card p.cold-note,
+.radio-idle p.cold-note {
+  color: var(--cyan);
+  font-size: 13px;
+  letter-spacing: 0.01em;
+  max-width: 44ch;
+  margin: 10px auto 18px;
+  line-height: 1.5;
+}
+
+.gate-card p.cold-note,
+.press-card p.cold-note {
+  margin: -6px auto 22px;
+}
+
+.radio-sub + .cold-note {
+  margin-top: 12px;
 }
 
 .enter {

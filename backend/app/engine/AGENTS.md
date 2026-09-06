@@ -31,7 +31,7 @@ render_wav_bytes → audio/wav bytes
 
 - **Sample rate:** `dsp.SR = 32000` (preview-quality electronic; fewer samples than 44.1k)
 - **Length:** `bars_for_duration(bpm, target_sec=120)` snaps bars (multiple of 4, clamped 32–80)
-- **Perf:** drum one-shots LRU-cached; A/B via `ProcessPoolExecutor` (thread fallback); thinned arps/leads on long forms; supersaw shared LPF; WAV files on disk (`store` + `CLASH_CACHE_DIR`); warm pair pool (`warm.py`)
+- **Perf:** drum one-shots LRU-cached; A/B via `ProcessPoolExecutor` (thread fallback); thinned arps/leads on long forms; supersaw shared LPF; WAV files on disk (`store` + `CLASH_CACHE_DIR`); warm pair pool (`warm.py`); idle janitor (`reclaim.py`) shuts the process pool after `CLASH_IDLE_RECLAIM_SEC`
 - **Form:** `form_sections(bars)` → intro / breakdown / roll / drop bar indices (scales with length)
 - **Rhythms:** `straight | broken | shuffle | half_time | double_hat | minimal`
 - **Styles:** `trance | dance | lofi | slow | hifi`

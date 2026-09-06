@@ -8,6 +8,7 @@ export type RadioSession = {
   queue: Track[];
   queueDepth: number;
   generating: boolean;
+  coldStart?: boolean;
 };
 
 export type RadioNext = {
@@ -16,6 +17,7 @@ export type RadioNext = {
   track: Track;
   queueDepth: number;
   generating: boolean;
+  coldStart?: boolean;
 };
 
 const API_BASE = (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, "") ?? "";

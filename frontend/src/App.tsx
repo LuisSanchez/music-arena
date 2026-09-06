@@ -2,7 +2,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Deck } from "./components/Deck";
 import { Radio } from "./components/Radio";
 import { Scope } from "./components/Scope";
-import { createMatch, createSession, voteMatch, type Match, type Pace } from "./lib/api";
+import { COLD_START_HINT, createMatch, createSession, voteMatch, type Match, type Pace } from "./lib/api";
+import { useEngineHealth } from "./lib/engine";
 import { describeLock, readEar, recordVote, type Ear } from "./lib/prefs";
 
 type Side = "A" | "B" | null;
@@ -71,6 +72,8 @@ export function App() {
   const [idleLeft, setIdleLeft] = useState<number | null>(null);
   const [autoplay, setAutoplay] = useState(() => readAutoplay());
   const [volume, setVolume] = useState(() => readVolume());
+  const [pressCold, setPressCold] = useState(false);
+  const { cold: engineCold, markHot } = useEngineHealth();
 
   const audioA = useRef<HTMLAudioElement>(null);
   const audioB = useRef<HTMLAudioElement>(null);
@@ -240,6 +243,7 @@ export function App() {
     clearPrefetchTimer();
     winnerHoldRef.current = null;
     stopBoth();
+    setPressCold(engineCold);
     setPressing(true);
     setError(null);
     setIdleLeft(null);
@@ -255,6 +259,8 @@ export function App() {
         sessionIdRef.current = warmed.sessionId;
         matchRef.current = warmed;
         setMatch(warmed);
+        markHot();
+        setPressCold(false);
         schedulePrefetch(warmed.matchId);
         return;
       }
@@ -265,6 +271,8 @@ export function App() {
       sessionIdRef.current = next.sessionId;
       matchRef.current = next;
       setMatch(next);
+      if (next.coldStart) setPressCold(true);
+      markHot();
       schedulePrefetch(next.matchId);
     } catch (err) {
       setError(err instanceof Error ? err.message : "press failed");
@@ -540,9 +548,12 @@ export function App() {
                 Radio
               </button>
             </div>
+            <div className="engine-pill" data-cold={engineCold} title={engineCold ? COLD_START_HINT : "Render workers are up"}>
+              {engineCold ? "desk sleeping" : "desk live"}
+            </div>
           </div>
         </nav>
-        <Radio onBack={() => setMode("arena")} />
+        <Radio onBack={() => setMode("arena")} engineCold={engineCold} markHot={markHot} />
       </div>
     );
   }
@@ -568,6 +579,9 @@ export function App() {
             >
               Radio
             </button>
+          </div>
+          <div className="engine-pill" data-cold={engineCold} title={engineCold ? COLD_START_HINT : "Render workers are up"}>
+            {engineCold ? "desk sleeping" : "desk live"}
           </div>
           <div className="bias-pill">
             ear lock
@@ -740,8 +754,9 @@ export function App() {
               Two tracks. Different tempo. Different rhythm. Listen to both, then vote for the one
               that hits harder — like a nightclub soundclash, in your browser.
             </p>
+            {engineCold ? <p className="cold-note">{COLD_START_HINT}</p> : null}
             <button className="enter" type="button" onClick={() => void enterDock()}>
-              Enter the arena
+              {engineCold ? "Wake the desk" : "Enter the arena"}
             </button>
           </div>
         </div>
@@ -751,7 +766,11 @@ export function App() {
         <div className="press">
           <div className="press-card">
             <h2>PRESS</h2>
-            <p>Cutting a fresh pair for this session…</p>
+            <p>
+              {pressCold || engineCold
+                ? "Desk was sleeping to keep memory down. This first pair is slower — the next ones will be faster."
+                : "Cutting a fresh pair for this session…"}
+            </p>
           </div>
         </div>
       ) : null}

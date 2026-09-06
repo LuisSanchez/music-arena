@@ -84,7 +84,11 @@ Config-as-code lives at [`backend/railway.toml`](./backend/railway.toml).
 
 ### RAM
 
-Plan for **≥1 GB** (NumPy/SciPy + ~120s WAVs). Generation can take several seconds per match; radio cuts are cheaper.
+Generation still needs headroom (**~1 GB** while a pair is pressing — two NumPy workers). After **~3 minutes** with no real client traffic the API **kills those workers** and trims malloc, so idle RSS should fall well below 1 GB (healthchecks on `/api/health` do not keep the desk awake).
+
+- First press after sleep is a cold start (slower). The UI says so.
+- Override with `CLASH_IDLE_RECLAIM_SEC` (seconds). `0` is not allowed; minimum is 60.
+- `GET /api/health` includes `cold`, `engine`, `idleSeconds`, and `rssMb` (Linux).
 
 ### Fly.io alternative
 

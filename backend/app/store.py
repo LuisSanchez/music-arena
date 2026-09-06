@@ -12,6 +12,10 @@ from typing import Any
 
 
 TTL_SECONDS = 2 * 60 * 60
+# Keep the live duel + one prefetch pair; drop older WAVs from disk.
+KEEP_MATCHES = 2
+# Radio cuts that are not part of a match.
+KEEP_LOOSE_TRACKS = 6
 
 
 def _cache_root() -> Path:
@@ -51,6 +55,7 @@ class MatchRecord:
 class Session:
     id: str
     created: float
+    last_seen: float
     matches: dict[str, MatchRecord] = field(default_factory=dict)
     tracks: dict[str, TrackRecord] = field(default_factory=dict)
 
@@ -82,9 +87,42 @@ class MemoryStore:
         if d.is_dir():
             shutil.rmtree(d, ignore_errors=True)
 
+    def _unlink(self, path: str) -> None:
+        try:
+            Path(path).unlink(missing_ok=True)
+        except OSError:
+            pass
+
+    def _drop_track(self, session: Session, rec: TrackRecord) -> None:
+        self._unlink(rec.path)
+        session.tracks.pop(rec.id, None)
+
+    def _drop_match(self, session: Session, match: MatchRecord) -> None:
+        self._drop_track(session, match.track_a)
+        self._drop_track(session, match.track_b)
+        session.matches.pop(match.id, None)
+
+    def prune_session(self, session: Session) -> None:
+        """Keep only the newest matches + a short radio tail."""
+        if len(session.matches) > KEEP_MATCHES:
+            ordered = sorted(session.matches.values(), key=lambda m: m.created)
+            for match in ordered[:-KEEP_MATCHES]:
+                self._drop_match(session, match)
+        live = {m.track_a.id for m in session.matches.values()} | {
+            m.track_b.id for m in session.matches.values()
+        }
+        extras = [t for tid, t in session.tracks.items() if tid not in live]
+        extras.sort(key=lambda t: t.id)
+        for rec in extras[:-KEEP_LOOSE_TRACKS] if KEEP_LOOSE_TRACKS else extras:
+            self._drop_track(session, rec)
+
     def _purge(self) -> None:
         now = time.time()
-        dead = [sid for sid, s in self.sessions.items() if now - s.created > TTL_SECONDS]
+        dead = [
+            sid
+            for sid, s in self.sessions.items()
+            if now - s.last_seen > TTL_SECONDS
+        ]
         for sid in dead:
             self._purge_session_files(sid)
             del self.sessions[sid]
@@ -101,17 +139,25 @@ class MemoryStore:
         except OSError:
             pass
 
+    def reclaim_idle(self) -> None:
+        """Janitor hook: expire stale sessions (files stay off-heap)."""
+        self._purge()
+
     def new_session(self) -> Session:
         self._purge()
         sid = uuid.uuid4().hex
-        session = Session(id=sid, created=time.time())
+        now = time.time()
+        session = Session(id=sid, created=now, last_seen=now)
         self.sessions[sid] = session
         self._session_dir(sid)
         return session
 
     def get(self, session_id: str) -> Session | None:
         self._purge()
-        return self.sessions.get(session_id)
+        session = self.sessions.get(session_id)
+        if session is not None:
+            session.last_seen = time.time()
+        return session
 
     def require(self, session_id: str) -> Session:
         session = self.get(session_id)
